@@ -14,6 +14,7 @@ A standalone Python service that scrapes OpenSubtitles.org using cloudscraper, p
 - **📦 Bazarr Compatible**: Provider interface compatible with existing Bazarr subtitle providers
 - **🔍 Robust Parsing**: Advanced HTML parsing for search results, subtitle listings, and downloads
 - **🔧 Error Handling**: Comprehensive error handling and logging
+- **🐳 Docker Support**: Containerized deployment for easy setup and scaling
 
 
 ## 🏗️ Architecture
@@ -47,9 +48,23 @@ graph LR
     style C fill:#F44336,stroke:#D32F2F,color:white
 ```
 
+
 ## 🚀 Quick Start
 
-### Installation
+### Docker Deployment (Recommended)
+
+The easiest and most reliable way to run this service is using Docker:
+
+1. **Build and run with Docker Compose**:
+   ```bash
+   docker-compose up
+   ```
+
+   The service will start on `http://localhost:8000`
+
+### Manual Installation
+
+If you prefer to run the service directly on your system:
 
 1. **Clone/Create the project directory**:
    ```bash
@@ -110,6 +125,7 @@ curl -X POST "http://localhost:8000/api/v1/download" \
      -d '{"subtitle_id": "123456", "download_url": "https://www.opensubtitles.org/download/..."}'
 ```
 
+
 ## 🔧 Integration with Bazarr
 
 To use this service as a provider in Bazarr, you can:
@@ -142,6 +158,7 @@ if subtitles:
 provider.terminate()
 ```
 
+
 ## 📁 Project Structure
 
 ```
@@ -163,11 +180,14 @@ opensubtitles-scraper/
 │   └── utils/                 # Utility modules
 │       ├── exceptions.py      # Custom exceptions
 │       └── helpers.py         # Helper functions
-├── cloudscraper-3.0.0/        # Local copy of cloudscraper library (newer than pip version)
+├── vendor/                    # Vendored dependencies (including cloudscraper)
 ├── main.py                    # FastAPI application entry point
 ├── requirements.txt           # Python dependencies
+├── Dockerfile                 # Docker image definition
+├── docker-compose.yml         # Docker Compose service definition
 └── README.md                  # This file
 ```
+
 
 ## 🔑 Key Components
 
@@ -175,7 +195,7 @@ opensubtitles-scraper/
 - Automatic Cloudflare bypass using the [VeNoMouS/cloudscraper](https://github.com/VeNoMouS/cloudscraper) library
 - Session management with proper headers and user agent rotation
 - Intelligent retry logic with exponential backoff
-- Uses local copy in `cloudscraper-3.0.0/` directory for enhanced features and compatibility
+- Uses vendored copy in `vendor/cloudscraper/` directory for enhanced features and compatibility
 
 ### HTML Parsing
 - Robust BeautifulSoup-based parsing for search results
@@ -192,6 +212,7 @@ opensubtitles-scraper/
 - Comprehensive logging throughout the application
 - Graceful degradation when services are unavailable
 
+
 ## 📝 Logging
 
 The service uses Python's built-in logging module. Logs include:
@@ -200,6 +221,7 @@ The service uses Python's built-in logging module. Logs include:
 - Error details and stack traces
 - Performance metrics
 
+
 ## 🔒 Security Considerations
 
 - Input validation and sanitization
@@ -207,12 +229,14 @@ The service uses Python's built-in logging module. Logs include:
 - Proper error message sanitization
 - Session management security
 
+
 ## ⚠️ Limitations
 
 - Depends on OpenSubtitles.org website structure (may break if they change their layout)
 - No built-in rate limiting (implement externally if needed)
 - Requires active internet connection
 - Subject to OpenSubtitles.org availability and anti-bot measures
+
 
 ## 🛠️ Troubleshooting
 
@@ -230,6 +254,23 @@ import logging
 logging.getLogger().setLevel(logging.DEBUG)
 ```
 
+
+## 🐳 Docker Support
+
+This service includes Docker support for easy deployment and scaling:
+
+- **Dockerfile**: Defines the container image with all dependencies
+- **docker-compose.yml**: Service definition for easy deployment
+
+### Benefits of Docker Deployment
+
+- Consistent environment across different systems
+- Simplified dependency management
+- Easy scaling and deployment
+- Isolation from host system
+- Version control of deployment configurations
+
+
 ## 🤝 Contributing
 
 1. Follow the existing code structure and patterns
@@ -238,9 +279,11 @@ logging.getLogger().setLevel(logging.DEBUG)
 4. Include logging for debugging
 5. Test with real OpenSubtitles.org data
 
+
 ## 📄 License
 
 This project is created for educational and personal use. Please respect OpenSubtitles.org's terms of service and robots.txt when using this scraper.
+
 
 ## 🙏 Acknowledgements
 

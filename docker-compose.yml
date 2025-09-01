@@ -1,0 +1,10 @@
+services:
+  opensubtitles-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      - PYTHONPATH=/app
