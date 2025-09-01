@@ -282,6 +282,10 @@ This service includes Docker support for easy deployment and scaling:
 
 ## 📄 License
 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+The MIT License is a permissive open-source license that allows you to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, provided that you include the original copyright notice and disclaimer in all copies or substantial portions of the software.
+
 This project is created for educational and personal use. Please respect OpenSubtitles.org's terms of service and robots.txt when using this scraper.
 
 
