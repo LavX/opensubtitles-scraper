@@ -1,0 +1,1 @@
+"""Parser modules for OpenSubtitles scraper"""

@@ -1,0 +1,1 @@
+"""Provider interface modules for OpenSubtitles scraper"""
