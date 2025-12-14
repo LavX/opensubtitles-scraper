@@ -80,7 +80,18 @@ async def root():
         "version": __version__,
         "description": __description__,
         "docs": "/docs",
-        "health": "/api/v1/health"
+        "health": "/health"
+    }
+
+
+@app.get("/health")
+async def health():
+    """Simple health check endpoint (root level for easy access)"""
+    scraper = get_scraper()
+    return {
+        "status": "healthy",
+        "version": __version__,
+        "scraper_status": "healthy" if scraper else "unavailable"
     }
 
 
