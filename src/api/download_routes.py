@@ -4,9 +4,11 @@ Download API routes for OpenSubtitles scraper service
 
 import logging
 import base64
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from ..core.scraper import OpenSubtitlesScraper
+
+# Import the shared scraper getter from routes
+from .routes import get_scraper
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,8 @@ async def download_subtitle(request: DownloadRequest):
     try:
         logger.info(f"Downloading subtitle from: {request.download_url}")
         
-        scraper = OpenSubtitlesScraper()
+        # Use shared scraper instance instead of creating new one
+        scraper = get_scraper()
         
         # Download the subtitle content
         content, filename = scraper.download_subtitle(request.download_url)

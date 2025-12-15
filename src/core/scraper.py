@@ -22,7 +22,8 @@ class OpenSubtitlesScraper:
     def __init__(self, timeout: int = 30):
         self.session_manager = SessionManager(timeout=timeout)
         self.search_parser = SearchParser()
-        self.subtitle_parser = SubtitleParser()
+        # Pass session manager to subtitle parser to avoid creating new sessions
+        self.subtitle_parser = SubtitleParser(session_manager=self.session_manager)
         self.download_parser = DownloadParser()
         self.imdb_lookup = IMDBLookupService(self.session_manager)
         self.base_url = "https://www.opensubtitles.org"
