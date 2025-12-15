@@ -429,6 +429,7 @@ class SubtitleParser:
     
     def _get_episode_subtitles(self, episode_url: str, episode_title: str) -> List[SubtitleInfo]:
         """Get subtitles for a specific episode"""
+        response = None
         try:
             # Use the shared session manager instead of creating new ones
             if not self._session_manager:
@@ -436,7 +437,12 @@ class SubtitleParser:
                 return []
             
             response = self._session_manager.get(episode_url)
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Read content and close response immediately to prevent file descriptor leak
+            html_content = response.text
+            response.close()
+            response = None
+            
+            soup = BeautifulSoup(html_content, 'html.parser')
             
             subtitles = []
             
@@ -458,6 +464,13 @@ class SubtitleParser:
         except Exception as e:
             logger.warning(f"Failed to get subtitles for episode {episode_url}: {e}")
             return []
+        finally:
+            # Ensure response is closed to prevent file descriptor leak
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
     
     def _parse_subtitle_link(self, link, episode_title: str, episode_url: str) -> Optional[SubtitleInfo]:
         """Parse individual subtitle link from episode page"""

@@ -115,6 +115,7 @@ class OpenSubtitlesScraper:
     
     def _search_autocomplete(self, query: str) -> List[SearchResult]:
         """Perform autocomplete search"""
+        response = None
         try:
             # Use the proper search form submission
             search_url = build_url(self.base_url, "/en/search2", {
@@ -125,16 +126,25 @@ class OpenSubtitlesScraper:
             logger.debug(f"Making autocomplete request to: {search_url}")
             response = self.session_manager.get(search_url)
             
-            # Parse autocomplete results
-            results = self.search_parser.parse_search_autocomplete(response.text)
+            # Parse autocomplete results - read content then close
+            html_content = response.text
+            results = self.search_parser.parse_search_autocomplete(html_content)
             return results
             
         except Exception as e:
             logger.warning(f"Autocomplete search failed: {e}")
             return []
+        finally:
+            # Always close response to release connection
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
     
     def _search_full_page(self, query: str, kind: str = "movie") -> List[SearchResult]:
         """Perform full page search"""
+        response = None
         try:
             # Use the proper search form submission
             search_params = {
@@ -153,13 +163,21 @@ class OpenSubtitlesScraper:
             logger.debug(f"Making full search request to: {search_url}")
             response = self.session_manager.get(search_url)
             
-            # Parse search results page
-            results = self.search_parser.parse_search_page(response.text)
+            # Parse search results page - read content then close
+            html_content = response.text
+            results = self.search_parser.parse_search_page(html_content)
             return results
             
         except Exception as e:
             logger.warning(f"Full page search failed: {e}")
             return []
+        finally:
+            # Always close response to release connection
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
     
     def _filter_search_results(self, results: List[SearchResult], query: str,
                              year: Optional[int] = None, imdb_id: Optional[str] = None,
@@ -239,19 +257,23 @@ class OpenSubtitlesScraper:
     def get_subtitles(self, movie_url: str, languages: Optional[List[str]] = None,
                      season: Optional[int] = None, episode: Optional[int] = None) -> List[SubtitleInfo]:
         """Get subtitle listings for a movie/show"""
+        response = None
         try:
             logger.info(f"Getting subtitles from: {movie_url}")
             
             # Make request to movie/show page
             response = self.session_manager.get(movie_url)
             
+            # Read content before closing
+            html_content = response.text
+            
             # Check if this is a TV series and we need specific episode
             if season and episode:
                 logger.info(f"Looking for specific episode: S{season:02d}E{episode:02d}")
-                subtitles = self._get_episode_subtitles(response.text, movie_url, season, episode, languages)
+                subtitles = self._get_episode_subtitles(html_content, movie_url, season, episode, languages)
             else:
                 # Parse subtitle listings normally
-                subtitles = self.subtitle_parser.parse_subtitle_page(response.text, movie_url)
+                subtitles = self.subtitle_parser.parse_subtitle_page(html_content, movie_url)
             
             # Filter by languages if specified
             if languages:
@@ -292,9 +314,18 @@ class OpenSubtitlesScraper:
         except Exception as e:
             logger.error(f"Failed to get subtitles: {e}")
             raise ScrapingError(f"Subtitle listing failed: {e}")
+        finally:
+            # Always close response to release connection
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
     
     def download_subtitle(self, subtitle_info: SubtitleInfo) -> Dict[str, Any]:
         """Download a subtitle file"""
+        download_response = None
+        download_page_response = None
         try:
             logger.info(f"Downloading subtitle: {subtitle_info.subtitle_id}")
             
@@ -307,12 +338,19 @@ class OpenSubtitlesScraper:
                 download_response = self.session_manager.get(direct_download_url)
                 
                 # Check if we got a ZIP file
-                if download_response.headers.get('content-type', '').startswith('application/zip'):
-                    logger.info(f"Successfully downloaded ZIP file ({len(download_response.content)} bytes)")
+                content_type = download_response.headers.get('content-type', '')
+                if content_type.startswith('application/zip'):
+                    # Read content before closing
+                    zip_content = download_response.content
+                    logger.info(f"Successfully downloaded ZIP file ({len(zip_content)} bytes)")
+                    
+                    # Close response immediately after reading content
+                    download_response.close()
+                    download_response = None
                     
                     # Extract subtitle from ZIP
                     subtitle_data = self.download_parser.extract_subtitle_from_zip(
-                        download_response.content,
+                        zip_content,
                         subtitle_info.filename
                     )
                     
@@ -323,10 +361,21 @@ class OpenSubtitlesScraper:
                     logger.info(f"Successfully downloaded subtitle: {subtitle_data['filename']}")
                     return subtitle_data
                 else:
-                    logger.warning(f"Direct download didn't return ZIP, got: {download_response.headers.get('content-type')}")
+                    logger.warning(f"Direct download didn't return ZIP, got: {content_type}")
+                    # Close response before trying fallback
+                    if download_response:
+                        download_response.close()
+                        download_response = None
                     
             except Exception as e:
                 logger.warning(f"Direct download failed: {e}, trying fallback method")
+                # Ensure response is closed on error
+                if download_response:
+                    try:
+                        download_response.close()
+                    except Exception:
+                        pass
+                    download_response = None
             
             # Fallback: Use the original method with download page parsing
             if not subtitle_info.download_url:
@@ -334,7 +383,11 @@ class OpenSubtitlesScraper:
             
             # First, get the download page to extract actual download link
             download_page_response = self.session_manager.get(subtitle_info.download_url)
-            download_info = self.download_parser.parse_download_page(download_page_response.text)
+            page_content = download_page_response.text
+            download_page_response.close()
+            download_page_response = None
+            
+            download_info = self.download_parser.parse_download_page(page_content)
             
             if download_info['requires_captcha']:
                 raise DownloadError("CAPTCHA required for download")
@@ -352,25 +405,30 @@ class OpenSubtitlesScraper:
             # Download the subtitle file (usually a ZIP)
             download_response = self.session_manager.get(actual_download_url)
             
+            # Read content before processing
+            response_content = download_response.content
+            response_headers = dict(download_response.headers)
+            download_response.close()
+            download_response = None
+            
             # Extract subtitle from ZIP if needed
-            if download_response.headers.get('content-type', '').startswith('application/zip') or \
+            if response_headers.get('content-type', '').startswith('application/zip') or \
                actual_download_url.endswith('.zip'):
                 subtitle_data = self.download_parser.extract_subtitle_from_zip(
-                    download_response.content,
+                    response_content,
                     subtitle_info.filename
                 )
             else:
                 # Direct subtitle file
-                content = download_response.content
                 try:
-                    content_text = content.decode('utf-8')
+                    content_text = response_content.decode('utf-8')
                 except UnicodeDecodeError:
-                    content_text = content.decode('latin1', errors='replace')
+                    content_text = response_content.decode('latin1', errors='replace')
                 
                 subtitle_data = {
                     'filename': subtitle_info.filename,
                     'content': content_text,
-                    'size': len(content),
+                    'size': len(response_content),
                     'encoding': 'utf-8'
                 }
             
@@ -384,6 +442,14 @@ class OpenSubtitlesScraper:
         except Exception as e:
             logger.error(f"Failed to download subtitle: {e}")
             raise DownloadError(f"Subtitle download failed: {e}")
+        finally:
+            # Ensure all responses are closed
+            for resp in [download_response, download_page_response]:
+                if resp:
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
     
     def close(self):
         """Close the scraper and cleanup resources"""
@@ -395,6 +461,7 @@ class OpenSubtitlesScraper:
     def _get_episode_subtitles(self, html_content: str, series_url: str,
                               season: int, episode: int, languages: Optional[List[str]] = None) -> List[SubtitleInfo]:
         """Get subtitles for a specific episode from TV series page"""
+        episode_response = None
         try:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -424,7 +491,11 @@ class OpenSubtitlesScraper:
             
             # Get subtitles from the specific episode page
             episode_response = self.session_manager.get(target_episode_url)
-            episode_soup = BeautifulSoup(episode_response.text, 'html.parser')
+            episode_html = episode_response.text
+            episode_response.close()
+            episode_response = None
+            
+            episode_soup = BeautifulSoup(episode_html, 'html.parser')
             
             subtitles = []
             
@@ -446,6 +517,13 @@ class OpenSubtitlesScraper:
         except Exception as e:
             logger.error(f"Failed to get episode subtitles: {e}")
             return []
+        finally:
+            # Ensure response is closed
+            if episode_response:
+                try:
+                    episode_response.close()
+                except Exception:
+                    pass
     
     def _parse_episode_subtitle_link(self, link, season: int, episode: int) -> Optional[SubtitleInfo]:
         """Parse subtitle link from episode page"""

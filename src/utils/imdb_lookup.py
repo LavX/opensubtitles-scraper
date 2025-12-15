@@ -41,6 +41,7 @@ class IMDBLookupService:
                 logger.debug(f"Using cached title for {imdb_id}: {cached_data['title']}")
                 return cached_data['title']
         
+        response = None
         try:
             logger.info(f"Looking up title for IMDB ID: {imdb_id}")
             
@@ -50,8 +51,13 @@ class IMDBLookupService:
             # Make request to IMDB
             response = self.session_manager.get(imdb_url)
             
+            # Read content and close response immediately to prevent file descriptor leak
+            html_content = response.text
+            response.close()
+            response = None
+            
             # Extract title from HTML
-            title = self._extract_title_from_html(response.text)
+            title = self._extract_title_from_html(html_content)
             
             if title:
                 # Cache the result
@@ -68,6 +74,13 @@ class IMDBLookupService:
         except Exception as e:
             logger.error(f"Failed to lookup title for {imdb_id}: {e}")
             return None
+        finally:
+            # Ensure response is closed to prevent file descriptor leak
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
     
     def _extract_title_from_html(self, html_content: str) -> Optional[str]:
         """Extract title from IMDB HTML page"""
