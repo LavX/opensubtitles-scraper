@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 # Connection pool limits to prevent "Too many open files" error
-MAX_POOL_CONNECTIONS = 10  # Maximum number of connection pools to cache
-MAX_POOL_SIZE = 5  # Maximum number of connections per pool
-MAX_RETRIES = 3  # Maximum retries for failed requests
+MAX_POOL_CONNECTIONS = 5  # Maximum number of connection pools to cache (reduced from 10)
+MAX_POOL_SIZE = 3  # Maximum number of connections per pool (reduced from 5)
+MAX_RETRIES = 2  # Maximum retries for failed requests (reduced from 3)
+MAX_CONCURRENT_REQUESTS = 2  # Maximum concurrent requests
 
 
 class SessionManager:
@@ -28,10 +29,11 @@ class SessionManager:
         self.session: Optional[cloudscraper.CloudScraper] = None
         self.base_url = "https://www.opensubtitles.org"
         self.last_request_time = 0
-        self.min_request_interval = 1.0  # Minimum seconds between requests
+        self.min_request_interval = 1.5  # Minimum seconds between requests (increased from 1.0)
         self.request_count = 0
-        self.max_requests_before_cleanup = 50  # Cleanup connections after this many requests
+        self.max_requests_before_cleanup = 20  # Cleanup connections after this many requests (reduced from 50)
         self._lock = threading.Lock()  # Thread safety for session access
+        self._request_semaphore = threading.Semaphore(MAX_CONCURRENT_REQUESTS)  # Limit concurrent requests
         
     def _create_session(self) -> cloudscraper.CloudScraper:
         """Create a new cloudscraper session with connection pool limits"""
@@ -47,20 +49,21 @@ class SessionManager:
                 debug=False
             )
             
-            # Configure retry strategy
+            # Configure retry strategy with backoff
             retry_strategy = Retry(
                 total=MAX_RETRIES,
-                backoff_factor=1,
+                backoff_factor=2,  # Exponential backoff: 2, 4, 8 seconds
                 status_forcelist=[429, 500, 502, 503, 504],
-                allowed_methods=["HEAD", "GET", "OPTIONS"]
+                allowed_methods=["HEAD", "GET", "OPTIONS"],
+                raise_on_status=False  # Don't raise immediately, let us handle it
             )
             
-            # Configure HTTP adapter with connection pool limits
+            # Configure HTTP adapter with strict connection pool limits
             adapter = HTTPAdapter(
                 pool_connections=MAX_POOL_CONNECTIONS,
                 pool_maxsize=MAX_POOL_SIZE,
                 max_retries=retry_strategy,
-                pool_block=False  # Don't block when pool is full, create new connection
+                pool_block=True  # CRITICAL: Block and wait when pool is full instead of creating new connections
             )
             
             # Mount adapter for both HTTP and HTTPS
@@ -71,14 +74,14 @@ class SessionManager:
             session.verify = True  # Enable SSL verification
             session.timeout = self.timeout
             
-            # Set common headers
+            # Set common headers - use Connection: close to prevent connection reuse issues
             session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate',
                 'DNT': '1',
-                'Connection': 'keep-alive',
+                'Connection': 'close',  # Changed from keep-alive to prevent connection accumulation
                 'Upgrade-Insecure-Requests': '1',
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
@@ -86,7 +89,7 @@ class SessionManager:
                 'Cache-Control': 'max-age=0',
             })
             
-            logger.info(f"Created cloudscraper session with pool_connections={MAX_POOL_CONNECTIONS}, pool_maxsize={MAX_POOL_SIZE}")
+            logger.info(f"Created cloudscraper session with pool_connections={MAX_POOL_CONNECTIONS}, pool_maxsize={MAX_POOL_SIZE}, pool_block=True")
             return session
             
         except Exception as e:
@@ -139,15 +142,21 @@ class SessionManager:
     
     def make_request(self, method: str, url: str, **kwargs) -> cloudscraper.requests.Response:
         """Make a request using cloudscraper with error handling"""
-        self._wait_for_rate_limit()
+        # Acquire semaphore to limit concurrent requests
+        acquired = self._request_semaphore.acquire(timeout=60)
+        if not acquired:
+            raise ScrapingError("Request timeout: too many concurrent requests")
         
-        session = self.get_session()
-        
-        # Set timeout if not provided
-        if 'timeout' not in kwargs:
-            kwargs['timeout'] = self.timeout
-        
+        response = None
         try:
+            self._wait_for_rate_limit()
+            
+            session = self.get_session()
+            
+            # Set timeout if not provided
+            if 'timeout' not in kwargs:
+                kwargs['timeout'] = self.timeout
+            
             logger.debug(f"Making {method.upper()} request to: {url}")
             response = session.request(method, url, **kwargs)
             
@@ -157,6 +166,9 @@ class SessionManager:
             # Check for Cloudflare challenge
             if 'cf-ray' in response.headers and response.status_code in [403, 503]:
                 logger.warning("Cloudflare challenge detected, recreating session")
+                # Close the response first
+                if response:
+                    response.close()
                 self.close()  # Properly close old session
                 session = self.get_session()
                 response = session.request(method, url, **kwargs)
@@ -167,14 +179,30 @@ class SessionManager:
             
         except Timeout as e:
             logger.error(f"Request timeout: {e}")
+            # Cleanup on error
+            self._cleanup_on_error()
             raise ScrapingError(f"Request timeout: {e}")
             
         except ConnectionError as e:
             logger.error(f"Connection error: {e}")
+            # Cleanup on error - this is critical for "too many open files"
+            self._cleanup_on_error()
             raise ServiceUnavailableError(f"Connection error: {e}")
             
         except RequestException as e:
+            # Close response if it exists
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+            
             if hasattr(e, 'response') and e.response is not None:
+                try:
+                    e.response.close()
+                except Exception:
+                    pass
+                    
                 status_code = e.response.status_code
                 if status_code == 403:
                     logger.error("Access forbidden - possible Cloudflare block")
@@ -188,6 +216,16 @@ class SessionManager:
             else:
                 logger.error(f"Request error: {e}")
                 raise ScrapingError(f"Request error: {e}")
+        finally:
+            # Always release the semaphore
+            self._request_semaphore.release()
+    
+    def _cleanup_on_error(self):
+        """Cleanup connections when an error occurs"""
+        try:
+            self._cleanup_idle_connections()
+        except Exception as e:
+            logger.warning(f"Error during cleanup on error: {e}")
     
     def get(self, url: str, **kwargs) -> cloudscraper.requests.Response:
         """Make a GET request"""
@@ -202,11 +240,25 @@ class SessionManager:
         with self._lock:
             if self.session:
                 try:
-                    # Close all adapters to release connection pools
+                    # First, clear all connection pools in adapters
                     for adapter in self.session.adapters.values():
+                        if hasattr(adapter, 'poolmanager') and adapter.poolmanager:
+                            try:
+                                adapter.poolmanager.clear()
+                            except Exception as e:
+                                logger.debug(f"Error clearing pool manager: {e}")
                         if hasattr(adapter, 'close'):
-                            adapter.close()
-                    self.session.close()
+                            try:
+                                adapter.close()
+                            except Exception as e:
+                                logger.debug(f"Error closing adapter: {e}")
+                    
+                    # Then close the session itself
+                    try:
+                        self.session.close()
+                    except Exception as e:
+                        logger.debug(f"Error closing session: {e}")
+                        
                 except Exception as e:
                     logger.warning(f"Error closing session: {e}")
                 finally:
