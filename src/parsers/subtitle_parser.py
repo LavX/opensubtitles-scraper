@@ -63,8 +63,13 @@ class SubtitleInfo:
 class SubtitleParser:
     """Parser for OpenSubtitles subtitle listings"""
     
-    def __init__(self):
+    def __init__(self, session_manager=None):
         self.base_url = "https://www.opensubtitles.org"
+        self._session_manager = session_manager
+    
+    def set_session_manager(self, session_manager):
+        """Set the session manager to use for requests"""
+        self._session_manager = session_manager
     
     def parse_subtitle_page(self, html_content: str, movie_url: str) -> List[SubtitleInfo]:
         """Parse subtitle listing page"""
@@ -425,30 +430,30 @@ class SubtitleParser:
     def _get_episode_subtitles(self, episode_url: str, episode_title: str) -> List[SubtitleInfo]:
         """Get subtitles for a specific episode"""
         try:
-            from ..core.session_manager import SessionManager
+            # Use the shared session manager instead of creating new ones
+            if not self._session_manager:
+                logger.warning("No session manager available, skipping episode subtitle fetch")
+                return []
             
-            # Use the existing session manager from the scraper
-            # For now, we'll create a new one (this could be optimized)
-            with SessionManager() as session_manager:
-                response = session_manager.get(episode_url)
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                subtitles = []
-                
-                # Look for subtitle links in this episode page
-                subtitle_links = soup.find_all('a', href=re.compile(r'/en/subtitles/\d+'))
-                
-                for link in subtitle_links:
-                    try:
-                        subtitle = self._parse_subtitle_link(link, episode_title, episode_url)
-                        if subtitle:
-                            subtitles.append(subtitle)
-                    except Exception as e:
-                        logger.warning(f"Failed to parse subtitle link: {e}")
-                        continue
-                
-                logger.debug(f"Found {len(subtitles)} subtitles for episode: {episode_title}")
-                return subtitles
+            response = self._session_manager.get(episode_url)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            subtitles = []
+            
+            # Look for subtitle links in this episode page
+            subtitle_links = soup.find_all('a', href=re.compile(r'/en/subtitles/\d+'))
+            
+            for link in subtitle_links:
+                try:
+                    subtitle = self._parse_subtitle_link(link, episode_title, episode_url)
+                    if subtitle:
+                        subtitles.append(subtitle)
+                except Exception as e:
+                    logger.warning(f"Failed to parse subtitle link: {e}")
+                    continue
+            
+            logger.debug(f"Found {len(subtitles)} subtitles for episode: {episode_title}")
+            return subtitles
                 
         except Exception as e:
             logger.warning(f"Failed to get subtitles for episode {episode_url}: {e}")
