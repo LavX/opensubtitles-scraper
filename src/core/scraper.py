@@ -36,6 +36,18 @@ class OpenSubtitlesScraper:
             
             # Handle empty query with IMDB ID - lookup title first
             original_query = query
+            if imdb_id:
+                imdb_results = self._search_by_imdb_id(imdb_id, kind="movie")
+                if imdb_results:
+                    filtered_results = self._filter_search_results(
+                        imdb_results, original_query, year, imdb_id, kind="movie"
+                    )
+                    if filtered_results:
+                        logger.info(
+                            f"Found {len(filtered_results)} movies via IMDB ID search"
+                        )
+                        return filtered_results
+
             if not query.strip() and imdb_id:
                 logger.info(f"Empty query with IMDB ID {imdb_id}, looking up title...")
                 resolved_title = self.imdb_lookup.lookup_title(imdb_id)
@@ -79,6 +91,18 @@ class OpenSubtitlesScraper:
             
             # Handle empty query with IMDB ID - lookup title first
             original_query = query
+            if imdb_id:
+                imdb_results = self._search_by_imdb_id(imdb_id, kind="episode")
+                if imdb_results:
+                    filtered_results = self._filter_search_results(
+                        imdb_results, original_query, year, imdb_id, kind="episode"
+                    )
+                    if filtered_results:
+                        logger.info(
+                            f"Found {len(filtered_results)} TV shows via IMDB ID search"
+                        )
+                        return filtered_results
+
             if not query.strip() and imdb_id:
                 logger.info(f"Empty query with IMDB ID {imdb_id}, looking up title...")
                 resolved_title = self.imdb_lookup.lookup_title(imdb_id)
@@ -173,6 +197,46 @@ class OpenSubtitlesScraper:
             return []
         finally:
             # Always close response to release connection
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
+    def _search_by_imdb_id(
+        self,
+        imdb_id: str,
+        kind: Optional[str] = None,
+    ) -> List[SearchResult]:
+        """Perform search using an IMDB ID without requiring a title lookup"""
+        response = None
+        try:
+            imdb_number = re.sub(r"\D", "", imdb_id)
+            if not imdb_number:
+                return []
+
+            search_path = f"/en/search/sublanguageid-all/imdbid-{imdb_number}"
+            search_url = build_url(self.base_url, search_path)
+
+            logger.debug(f"Making IMDB ID search request to: {search_url}")
+            response = self.session_manager.get(search_url)
+
+            html_content = response.text
+            results = self.search_parser.parse_search_page(html_content)
+
+            for result in results:
+                if not result.imdb_id:
+                    result.imdb_id = imdb_id
+
+            if kind:
+                results = [result for result in results if result.kind == kind]
+
+            return results
+
+        except Exception as e:
+            logger.warning(f"IMDB ID search failed: {e}")
+            return []
+        finally:
             if response:
                 try:
                     response.close()
