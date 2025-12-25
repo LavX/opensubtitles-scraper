@@ -231,7 +231,22 @@ class OpenSubtitlesScraper:
             if kind:
                 results = [result for result in results if result.kind == kind]
 
-            return results
+            if results:
+                return results
+
+            if "/en/subtitles/" in html_content:
+                return [
+                    SearchResult(
+                        title=imdb_id,
+                        year=None,
+                        imdb_id=imdb_id,
+                        url=search_url,
+                        subtitle_count=0,
+                        kind=kind or "movie",
+                    )
+                ]
+
+            return []
 
         except Exception as e:
             logger.warning(f"IMDB ID search failed: {e}")
