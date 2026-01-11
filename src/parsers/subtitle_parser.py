@@ -382,10 +382,14 @@ class SubtitleParser:
             if season_headers:
                 return True
             
-            # Look for episode links with IMDB IDs
+            # Look for episode links with IMDB IDs - but ONLY if we also see season/episode markers
+            # This prevents movie search results from being misidentified as TV series
             episode_links = soup.find_all('a', href=re.compile(r'/imdbid-\d+'))
-            if len(episode_links) > 3:  # Multiple episodes
-                return True
+            if len(episode_links) > 3:
+                # Additional check: verify there's actual episode data (not just movie links)
+                page_text = soup.get_text()
+                if re.search(r'(S\d{1,2}E\d{1,2}|Episode \d+)', page_text, re.I):
+                    return True
             
             return False
             

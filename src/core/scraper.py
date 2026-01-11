@@ -340,6 +340,12 @@ class OpenSubtitlesScraper:
         try:
             logger.info(f"Getting subtitles from: {movie_url}")
             
+            # Modify URL to search for specific language to avoid pagination issues
+            if languages:
+                lang_code = languages[0].lower()
+                movie_url = movie_url.replace('sublanguageid-all', f'sublanguageid-{lang_code}')
+                logger.debug(f"Modified movie URL for language {lang_code}: {movie_url}")
+            
             # Make request to movie/show page
             response = self.session_manager.get(movie_url)
             
@@ -559,6 +565,12 @@ class OpenSubtitlesScraper:
                 if target_episode_url.startswith('/'):
                     target_episode_url = self.base_url + target_episode_url
                 
+                # Modify URL to search for specific language to avoid pagination issues
+                if languages:
+                    lang_code = languages[0].lower()
+                    target_episode_url = target_episode_url.replace('sublanguageid-all', f'sublanguageid-{lang_code}')
+                    logger.debug(f"Modified target URL for language {lang_code}: {target_episode_url}")
+
                 link_text = target_link.get_text(strip=True)
                 logger.info(f"Found target episode {episode}: {link_text} -> {target_episode_url}")
             else:
@@ -682,11 +694,11 @@ class OpenSubtitlesScraper:
                 last_part = url_parts[-1]  # e.g., "the-exchange-bank-of-tomorrow-nl"
                 if '-' in last_part:
                     language = last_part.split('-')[-1]
-                    if len(language) == 2:  # Valid language code
+                    if len(language) in [2, 3]:  # Valid language code (2 or 3 letter)
                         return language
             
             # Fallback: extract from URL path
-            lang_match = re.search(r'/([a-z]{2})/', url)
+            lang_match = re.search(r'/([a-z]{2,3})/', url)
             if lang_match:
                 return lang_match.group(1)
             
