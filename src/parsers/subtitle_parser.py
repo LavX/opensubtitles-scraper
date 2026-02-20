@@ -161,19 +161,80 @@ class SubtitleParser:
             if not language:
                 language = "en"  # Default fallback
             
-            # Use title as filename base
-            filename = f"{title_text.replace(' ', '.')}.{language}.srt"
+            # Extract release name from main cell - it's typically after the title link
+            # The HTML structure is: <strong><a>Title (Year)</a></strong><br />release-name<br />
+            release_name = title_text  # Default to title
             
-            # Extract release name from title
-            release_name = title_text
+            # Find the strong tag containing the title link
+            strong_tag = main_cell.find('strong')
+            if strong_tag:
+                # Look for text after the strong tag, typically after a <br />
+                # Get all siblings after strong_tag
+                for sibling in strong_tag.next_siblings:
+                    if isinstance(sibling, str):
+                        text = sibling.strip()
+                        if text and not text.startswith('Watch') and not text.startswith('Download'):
+                            release_name = text
+                            break
+                    elif hasattr(sibling, 'name') and sibling.name == 'br':
+                        continue  # Skip <br> tags
+                    elif hasattr(sibling, 'get_text'):
+                        text = sibling.get_text(strip=True)
+                        if text and not text.startswith('Watch') and not text.startswith('Download'):
+                            # Skip links with class 'p' (these are action links)
+                            if hasattr(sibling, 'get') and sibling.get('class') and 'p' in sibling.get('class', []):
+                                break  # Stop when we hit action links
+                            release_name = text
+                            break
             
-            # For now, set default values for other fields
-            # These could be extracted from additional cells if present
-            uploader = "unknown"
+            # Use release name as filename base if available
+            if release_name and release_name != title_text:
+                filename = f"{release_name.replace(' ', '.')}.{language}.srt"
+            else:
+                filename = f"{title_text.replace(' ', '.')}.{language}.srt"
+            
+            # Extract download count from row (pattern: "1234x")
             download_count = 0
-            rating = 0.0
+            download_links = row.find_all('a', href=re.compile(r'/subtitleserve/sub/'))
+            for dl_link in download_links:
+                dl_text = dl_link.get_text(strip=True)
+                count_match = re.search(r'(\d+)x', dl_text)
+                if count_match:
+                    download_count = int(count_match.group(1))
+                    break
+            
+            # Extract FPS from row
             fps = None
-            upload_date = None
+            fps_spans = row.find_all('span', class_='p')
+            for span in fps_spans:
+                fps_text = span.get_text(strip=True)
+                if re.match(r'\d+\.\d+', fps_text):
+                    try:
+                        fps = float(fps_text)
+                    except ValueError:
+                        pass
+                    break
+            
+            # Extract uploader from row
+            uploader = "unknown"
+            uploader_link = row.find('a', href=re.compile(r'/en/profile/'))
+            if uploader_link:
+                uploader_text = uploader_link.get_text(strip=True)
+                if uploader_text:
+                    uploader = uploader_text
+            
+            # Extract upload date
+            upload_date = self._extract_upload_date_from_row(row)
+            
+            # Rating from row (pattern: "8.8" or similar)
+            rating = 0.0
+            rating_spans = row.find_all('span', title=re.compile(r'\d+ votes'))
+            for span in rating_spans:
+                try:
+                    rating = float(span.get_text(strip=True))
+                except ValueError:
+                    pass
+                break
             
             # Determine hearing impaired and forced flags from filename/title
             row_text = row.get_text().lower()
