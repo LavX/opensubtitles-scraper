@@ -279,6 +279,10 @@ This service includes Docker support for easy deployment and scaling:
 4. Include logging for debugging
 5. Test with real OpenSubtitles.org data
 
+### Contributors
+
+- **[@salwinh](https://github.com/salwinh)** - Language-specific URL filtering, TV series detection improvements, subtitle metadata extraction
+
 ---
 
 ## 🌐 About the Maintainer
