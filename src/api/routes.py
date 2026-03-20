@@ -15,7 +15,7 @@ from .models import (
     HealthResponse, ErrorResponse
 )
 from ..core.scraper import OpenSubtitlesScraper
-from ..utils.exceptions import SearchError, ScrapingError, DownloadError
+from ..utils.exceptions import SearchError, ScrapingError, DownloadError, CloudflareError, ServiceUnavailableError
 from .. import __version__
 
 logger = logging.getLogger(__name__)
@@ -80,12 +80,26 @@ async def health_check():
     try:
         scraper = get_scraper()
         scraper_status = "healthy" if scraper else "unavailable"
-        
+
+        # Probe FlareSolverr
+        flaresolverr_url = os.environ.get("FLARESOLVERR_URL", "")
+        if not flaresolverr_url:
+            flaresolverr_status = "not_configured"
+        else:
+            import requests as plain_requests
+            try:
+                base_url = flaresolverr_url.rsplit("/v1", 1)[0]
+                r = plain_requests.get(f"{base_url}/health", timeout=3)
+                flaresolverr_status = "available" if r.status_code == 200 else "unavailable"
+            except Exception:
+                flaresolverr_status = "unavailable"
+
         return HealthResponse(
             status="healthy",
             version=__version__,
             uptime=time.time() - _start_time,
-            scraper_status=scraper_status
+            scraper_status=scraper_status,
+            flaresolverr_status=flaresolverr_status,
         )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -93,7 +107,8 @@ async def health_check():
             status="unhealthy",
             version=__version__,
             uptime=time.time() - _start_time,
-            scraper_status="error"
+            scraper_status="error",
+            flaresolverr_status="unknown",
         )
 
 
@@ -133,6 +148,12 @@ async def search_movies(request: SearchRequest, scraper: OpenSubtitlesScraper = 
     except SearchError as e:
         logger.error(f"Movie search failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except CloudflareError as e:
+        logger.error(f"Cloudflare block: {e}")
+        raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
+    except ServiceUnavailableError as e:
+        logger.error(f"Service unavailable: {e}")
+        raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
         logger.error(f"Unexpected error in movie search: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -174,6 +195,12 @@ async def search_tv_shows(request: SearchRequest, scraper: OpenSubtitlesScraper 
     except SearchError as e:
         logger.error(f"TV show search failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except CloudflareError as e:
+        logger.error(f"Cloudflare block: {e}")
+        raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
+    except ServiceUnavailableError as e:
+        logger.error(f"Service unavailable: {e}")
+        raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
         logger.error(f"Unexpected error in TV show search: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -220,6 +247,12 @@ async def get_subtitles(request: SubtitleRequest, scraper: OpenSubtitlesScraper 
     except ScrapingError as e:
         logger.error(f"Subtitle listing failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except CloudflareError as e:
+        logger.error(f"Cloudflare block: {e}")
+        raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
+    except ServiceUnavailableError as e:
+        logger.error(f"Service unavailable: {e}")
+        raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
         logger.error(f"Unexpected error in subtitle listing: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -257,6 +290,12 @@ async def download_subtitle(request: DownloadRequest, scraper: OpenSubtitlesScra
     except DownloadError as e:
         logger.error(f"Subtitle download failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except CloudflareError as e:
+        logger.error(f"Cloudflare block: {e}")
+        raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
+    except ServiceUnavailableError as e:
+        logger.error(f"Service unavailable: {e}")
+        raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
         logger.error(f"Unexpected error in subtitle download: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -378,6 +417,12 @@ async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(g
         
     except HTTPException:
         raise
+    except CloudflareError as e:
+        logger.error(f"Bazarr request blocked by Cloudflare: {e}")
+        return {'status': '503 Service Unavailable', 'data': []}
+    except ServiceUnavailableError as e:
+        logger.error(f"Bazarr request - service unavailable: {e}")
+        return {'status': '503 Service Unavailable', 'data': []}
     except Exception as e:
         logger.error(f"Bazarr search failed: {e}")
         return {
@@ -434,6 +479,12 @@ async def bazarr_download(request: dict, scraper: OpenSubtitlesScraper = Depends
         
     except HTTPException:
         raise
+    except CloudflareError as e:
+        logger.error(f"Bazarr request blocked by Cloudflare: {e}")
+        return {'status': '503 Service Unavailable', 'data': []}
+    except ServiceUnavailableError as e:
+        logger.error(f"Bazarr request - service unavailable: {e}")
+        return {'status': '503 Service Unavailable', 'data': []}
     except Exception as e:
         logger.error(f"Bazarr download failed: {e}")
         return {

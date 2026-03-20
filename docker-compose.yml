@@ -1,4 +1,22 @@
 services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8191/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
   opensubtitles-scraper:
     build:
       context: .
@@ -6,5 +24,18 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    depends_on:
+      flaresolverr:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
     environment:
       - PYTHONPATH=/app
+      - FLARESOLVERR_URL=http://flaresolverr:8191/v1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5

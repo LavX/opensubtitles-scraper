@@ -79,6 +79,7 @@ class HealthResponse(BaseModel):
     version: str
     uptime: float
     scraper_status: str
+    flaresolverr_status: str = "not_configured"
 
 
 class ErrorResponse(BaseModel):

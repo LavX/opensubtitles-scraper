@@ -1,156 +1,146 @@
-# 🎬 OpenSubtitles Web Scraper Service
+# OpenSubtitles.org Scraper
 
 [![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.116.1-green)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/license-MIT-orange)](LICENSE)
 
-A standalone Python service that scrapes OpenSubtitles.org using cloudscraper, providing API-compatible endpoints that can be used as a drop-in replacement for OpenSubtitles API providers in Bazarr.
-
-## 🌟 Features
-
-- **🛡️ Cloudflare Bypass**: Uses cloudscraper to automatically bypass Cloudflare protection
-- **🌐 Comprehensive Language Support**: Supports all major languages with proper language code mapping
-- **⚡ FastAPI Web Service**: RESTful API endpoints with automatic documentation
-- **📦 Bazarr Compatible**: Provider interface compatible with existing Bazarr subtitle providers
-- **🔍 Robust Parsing**: Advanced HTML parsing for search results, subtitle listings, and downloads
-- **🔧 Error Handling**: Comprehensive error handling and logging
-- **🐳 Docker Support**: Containerized deployment for easy setup and scaling
+A self-hosted service that scrapes OpenSubtitles.org and exposes Bazarr-compatible API endpoints. Drop-in replacement for the removed .org provider.
 
 
-## 🏗️ Architecture
+## Why this exists
+
+OpenSubtitles.org has been the go-to subtitle database for almost 20 years. Millions of subtitles, contributed by volunteers, freely accessible. That's changing.
+
+The operator is phasing out .org in favour of .com. The problem is that **.com is not ready**. Their own developers have acknowledged missing subtitles, miscategorised episodes, broken sync, and unreliable search. For many languages and older titles, .org is still the only source with real coverage.
+
+Meanwhile, every official way to access .org has been killed. Bazarr dropped its .org provider. The XML-RPC API was shut down. No migration path, no transition tooling. Users who depend on .org content that doesn't exist on .com yet were simply cut off.
+
+This project fills that gap. It gives you back access to .org until .com actually catches up. It ships with strict rate limits out of the box (1 req/s, 60 req/min) because the goal is access, not abuse.
+
+If .org gets shut down before .com reaches parity, that's the operator's call — but it means cutting a community off from the archive it built, not protecting it.
+
+> Rate limits are enforced by default and fully configurable. See [Configuration](#configuration).
+
+
+## Features
+
+- Cloudflare bypass via [cloudscraper](https://github.com/VeNoMouS/cloudscraper) + [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) fallback
+- Automatic FlareSolverr integration when Cloudflare "Under Attack" mode is active
+- Cookie caching — FlareSolverr is only called once per challenge cycle, subsequent requests go direct
+- Full language support with ISO 639-1/639-2 mapping
+- FastAPI service with auto-generated docs at `/docs`
+- Bazarr-compatible search and download endpoints
+- HTML parsing for search results, subtitle listings, and downloads
+- Built-in rate limiting, retry with backoff, and request queuing
+- Thread-safe with double-solve prevention and rate limiter locking
+- Docker-ready with FlareSolverr sidecar
+
+
+## Architecture
 
 ```mermaid
 graph LR
     A[Bazarr] --> B[FastAPI Service]
     B --> C[OpenSubtitles.org]
-    
-    subgraph "OpenSubtitles Scraper Service"
-        B
+    subgraph "Scraper Service"
         B --> D[Session Manager]
-        B --> E[OpenSubtitles Scraper]
+        B --> E[Scraper]
+        D -->|"CF detected"| J
+        J -->|"cookies"| D
         E --> F[Search Parser]
         E --> G[Subtitle Parser]
         E --> H[Download Parser]
         E --> I[Bazarr Provider]
     end
-    
-    subgraph "External Services"
-        C
-    end
-    
-    style B fill:#4CAF50,stroke:#388E3C,color:white
-    style D fill:#2196F3,stroke:#1976D2,color:white
-    style E fill:#2196F3,stroke:#1976D2,color:white
-    style F fill:#FF9800,stroke:#F57C00,color:white
-    style G fill:#FF9800,stroke:#F57C00,color:white
-    style H fill:#FF9800,stroke:#F57C00,color:white
-    style I fill:#9C27B0,stroke:#7B1FA2,color:white
-    style C fill:#F44336,stroke:#D32F2F,color:white
+```
+
+### Cloudflare Bypass Flow
+
+1. Pre-flight HEAD request detects Cloudflare challenge
+2. If active: FlareSolverr solves the challenge via headless browser
+3. Cookies + User-Agent are extracted and injected into the session
+4. All subsequent requests use the cookies directly (no browser needed)
+5. When cookies expire (TTL tracked), FlareSolverr is called again automatically
+
+FlareSolverr is optional — if not configured, the scraper falls back to cloudscraper only.
+
+
+## Quick Start
+
+### Docker (recommended)
+
+```bash
+# Optional: customise settings
+cp .env.example .env
+
+# Build and run (includes FlareSolverr sidecar for Cloudflare bypass)
+docker-compose up
+```
+
+Service starts on `http://localhost:8000`. FlareSolverr starts automatically as a sidecar — the scraper waits for it to be healthy before accepting requests.
+
+To run without FlareSolverr, unset `FLARESOLVERR_URL` or remove the service from `docker-compose.yml`.
+
+### Manual
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env   # optional
+python main.py
 ```
 
 
-## 🚀 Quick Start
+## API
 
-### Docker Deployment (Recommended)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/health` | Health check |
+| `POST` | `/api/v1/search/movies` | Search movies |
+| `POST` | `/api/v1/search/tv` | Search TV shows |
+| `POST` | `/api/v1/subtitles` | List subtitles for a title |
+| `POST` | `/api/v1/download` | Download a subtitle file |
+| `GET` | `/docs` | Swagger UI |
 
-The easiest and most reliable way to run this service is using Docker:
+Bazarr-compatible endpoints are also available at `/search` and `/download` (without the `/api/v1` prefix).
 
-1. **Build and run with Docker Compose**:
-   ```bash
-   docker-compose up
-   ```
+### Examples
 
-   The service will start on `http://localhost:8000`
-
-### Manual Installation
-
-If you prefer to run the service directly on your system:
-
-1. **Clone/Create the project directory**:
-   ```bash
-   cd /path/to/your/projects
-   # The opensubtitles-scraper directory should already exist
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   cd opensubtitles-scraper
-   pip install -r requirements.txt
-   ```
-
-3. **Run the service**:
-   ```bash
-   python main.py
-   ```
-
-   The service will start on `http://localhost:8000`
-
-## 📡 API Endpoints
-
-### Health Check
-- `GET /api/v1/health` - Service health status
-
-### Search
-- `POST /api/v1/search/movies` - Search for movies
-- `POST /api/v1/search/tv` - Search for TV shows
-
-### Subtitles
-- `POST /api/v1/subtitles` - Get subtitle listings for a movie/show
-- `POST /api/v1/download` - Download a subtitle file
-
-### Documentation
-- `GET /docs` - Interactive API documentation (Swagger UI)
-- `GET /redoc` - Alternative API documentation (ReDoc)
-
-## 💡 Usage Examples
-
-### Search for a Movie
 ```bash
-curl -X POST "http://localhost:8000/api/v1/search/movies" \
+# Search
+curl -X POST http://localhost:8000/api/v1/search/movies \
      -H "Content-Type: application/json" \
      -d '{"query": "Avatar", "year": 2009}'
-```
 
-### Get Subtitles
-```bash
-curl -X POST "http://localhost:8000/api/v1/subtitles" \
+# Get subtitles
+curl -X POST http://localhost:8000/api/v1/subtitles \
      -H "Content-Type: application/json" \
      -d '{"movie_url": "https://www.opensubtitles.org/en/movies/idmovies-123456", "languages": ["en", "es"]}'
-```
 
-### Download Subtitle
-```bash
-curl -X POST "http://localhost:8000/api/v1/download" \
+# Download
+curl -X POST http://localhost:8000/api/v1/download \
      -H "Content-Type: application/json" \
      -d '{"subtitle_id": "123456", "download_url": "https://www.opensubtitles.org/download/..."}'
 ```
 
 
-## 🔧 Integration with Bazarr
+## Bazarr Integration
 
-To use this service as a provider in Bazarr, you can:
+Three ways to use it:
 
-1. **Direct Integration**: Use the provider classes in `src/providers/` directly
-2. **API Integration**: Configure Bazarr to use the FastAPI service endpoints
-3. **Drop-in Replacement**: Replace existing OpenSubtitles provider with the scraper provider
+1. **API mode** — point Bazarr at this service's endpoints
+2. **Provider classes** — use `src/providers/` directly in your Bazarr fork
+3. **Drop-in replacement** — swap the OpenSubtitles provider
 
-### Example Provider Usage
 ```python
 from src.providers.opensubtitles_scraper_provider import OpenSubtitlesScraperProvider
 from src.providers.base_provider import Language, Movie
 
-# Initialize provider
 provider = OpenSubtitlesScraperProvider()
 provider.initialize()
 
-# Create video object
 video = Movie("Avatar.2009.1080p.BluRay.x264-GROUP", "Avatar", 2009)
+subtitles = provider.list_subtitles(video, {Language('en'), Language('es')})
 
-# Search for subtitles
-languages = {Language('en'), Language('es')}
-subtitles = provider.list_subtitles(video, languages)
-
-# Download subtitle
 if subtitles:
     provider.download_subtitle(subtitles[0])
     print(subtitles[0].content.decode('utf-8'))
@@ -159,162 +149,96 @@ provider.terminate()
 ```
 
 
-## 📁 Project Structure
+## Configuration
+
+All settings are configurable via environment variables or a `.env` file. Docker Compose loads `.env` automatically.
+
+Copy the example and adjust:
+```bash
+cp .env.example .env
+```
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SCRAPER_MIN_REQUEST_INTERVAL` | `1.0` | Min seconds between requests |
+| `SCRAPER_RATE_LIMIT_PER_MINUTE` | `60` | Max requests per 60s sliding window |
+| `SCRAPER_MAX_INFLIGHT_REQUESTS` | `2` | Concurrent API requests before queuing/rejecting |
+| `SCRAPER_MAX_CONCURRENT_REQUESTS` | `2` | Concurrent outbound connections to .org |
+| `SCRAPER_QUEUE_TIMEOUT` | `0` | Queue wait before 429 (0 = reject immediately) |
+| `SCRAPER_RETRY_AFTER_SECONDS` | `15` | Retry-After header value on 429 |
+| `SCRAPER_MAX_RETRIES` | `2` | Retries on 429/5xx from upstream |
+| `SCRAPER_RETRY_BACKOFF_FACTOR` | `2` | Backoff multiplier between retries |
+| `SCRAPER_REQUEST_TIMEOUT` | `30` | HTTP timeout in seconds |
+| `SCRAPER_MAX_POOL_CONNECTIONS` | `5` | Connection pools to cache |
+| `SCRAPER_MAX_POOL_SIZE` | `3` | Connections per pool |
+| `SCRAPER_MAX_REQUESTS_BEFORE_CLEANUP` | `20` | Requests between pool cleanup |
+| `FLARESOLVERR_URL` | _(unset)_ | FlareSolverr endpoint (e.g. `http://flaresolverr:8191/v1`). Leave unset to disable. |
+| `FLARESOLVERR_TIMEOUT` | `60` | Timeout in seconds for FlareSolverr challenge resolution |
+
+Defaults enforce **1 req/s and 60 req/min**. Adjust if you need looser or tighter limits.
+
+> **FlareSolverr note:** When running via `docker-compose.yml`, `FLARESOLVERR_URL` is pre-configured to use the sidecar service. To disable FlareSolverr, comment out both the `flaresolverr` service and the `FLARESOLVERR_URL` environment line in the compose file.
+
+
+## Project Structure
 
 ```
 opensubtitles-scraper/
 ├── src/
-│   ├── api/                    # FastAPI web service
-│   │   ├── models.py          # Pydantic models
-│   │   └── routes.py          # API endpoints
-│   ├── core/                  # Core scraping engine
-│   │   ├── scraper.py         # Main scraper class
-│   │   └── session_manager.py # CloudScraper session management
-│   ├── parsers/               # HTML parsing modules
-│   │   ├── search_parser.py   # Search results parsing
-│   │   ├── subtitle_parser.py # Subtitle listings parsing
-│   │   └── download_parser.py # Download handling
-│   ├── providers/             # Bazarr-compatible providers
-│   │   ├── base_provider.py   # Base provider interface
-│   │   └── opensubtitles_scraper_provider.py # Main provider
-│   └── utils/                 # Utility modules
-│       ├── exceptions.py      # Custom exceptions
-│       └── helpers.py         # Helper functions
-├── vendor/                    # Vendored dependencies (including cloudscraper)
-├── main.py                    # FastAPI application entry point
-├── requirements.txt           # Python dependencies
-├── Dockerfile                 # Docker image definition
-├── docker-compose.yml         # Docker Compose service definition
-└── README.md                  # This file
+│   ├── api/              # FastAPI routes and models
+│   ├── core/             # Scraper engine and session management
+│   ├── parsers/          # HTML parsing (search, subtitles, downloads)
+│   ├── providers/        # Bazarr-compatible provider interface
+│   └── utils/            # Exceptions and helpers
+├── vendor/               # Vendored cloudscraper
+├── main.py
+├── requirements.txt
+├── .env.example
+├── Dockerfile
+└── docker-compose.yml
 ```
 
 
-## 🔑 Key Components
+## Troubleshooting
 
-### CloudScraper Integration
-- Automatic Cloudflare bypass using the [VeNoMouS/cloudscraper](https://github.com/VeNoMouS/cloudscraper) library
-- Session management with proper headers and user agent rotation
-- Intelligent retry logic with exponential backoff
-- Uses vendored copy in `vendor/cloudscraper/` directory for enhanced features and compatibility
+**Cloudflare blocks** — cloudscraper handles most challenges automatically. If it persists, the session recreates itself.
 
-### HTML Parsing
-- Robust BeautifulSoup-based parsing for search results
-- Comprehensive subtitle metadata extraction
-- Support for various OpenSubtitles page layouts
+**Parsing breaks** — .org layout changes can break parsers. Open an issue or PR.
 
-### Language Support
-- Comprehensive language code mapping (ISO 639-1, 639-2, and common names)
-- Support for hearing impaired and forced subtitle flags
-- Automatic language detection from filenames
+**Connection errors** — check your network. The service has built-in retry with exponential backoff.
 
-### Error Handling
-- Custom exception hierarchy for different error types
-- Comprehensive logging throughout the application
-- Graceful degradation when services are unavailable
-
-
-## 📝 Logging
-
-The service uses Python's built-in logging module. Logs include:
-- Request/response information
-- Scraping progress and results
-- Error details and stack traces
-- Performance metrics
-
-
-## 🔒 Security Considerations
-
-- Input validation and sanitization
-- Safe file handling for downloads
-- Proper error message sanitization
-- Session management security
-
-
-## ⚠️ Limitations
-
-- Depends on OpenSubtitles.org website structure (may break if they change their layout)
-- No built-in rate limiting (implement externally if needed)
-- Requires active internet connection
-- Subject to OpenSubtitles.org availability and anti-bot measures
-
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-1. **Cloudflare Protection**: If scraping fails, the cloudscraper library will automatically handle most Cloudflare challenges
-2. **Parsing Errors**: Website structure changes may require parser updates
-3. **Network Issues**: Check internet connectivity and OpenSubtitles.org availability
-
-### Debug Mode
-
-Enable debug logging by setting the log level:
-```python
-import logging
-logging.getLogger().setLevel(logging.DEBUG)
+**Debug logging:**
+```bash
+LOG_LEVEL=DEBUG python main.py
 ```
 
 
-## 🐳 Docker Support
+## Contributing
 
-This service includes Docker support for easy deployment and scaling:
-
-- **Dockerfile**: Defines the container image with all dependencies
-- **docker-compose.yml**: Service definition for easy deployment
-
-### Benefits of Docker Deployment
-
-- Consistent environment across different systems
-- Simplified dependency management
-- Easy scaling and deployment
-- Isolation from host system
-- Version control of deployment configurations
-
-
-## 🤝 Contributing
-
-1. Follow the existing code structure and patterns
-2. Keep files under 500 lines as specified
-3. Add comprehensive error handling
-4. Include logging for debugging
-5. Test with real OpenSubtitles.org data
+1. Follow existing code patterns
+2. Keep files under 500 lines
+3. Include error handling and logging
+4. Test against live .org data
 
 ### Contributors
 
-- **[@salwinh](https://github.com/salwinh)** - Language-specific URL filtering, TV series detection improvements, subtitle metadata extraction
+- **[@salwinh](https://github.com/salwinh)** — language-specific URL filtering, TV series detection, subtitle metadata extraction
 
 ---
 
-## 🌐 About the Maintainer
+## About
 
-This scraper is maintained by **LavX**. Explore more of my projects and services:
+Maintained by **[LavX](https://lavx.hu)**.
 
-### 🚀 Services
-- **[LavX Managed Systems](https://lavx.hu)** – Enterprise AI solutions, RAG systems, and LLMOps.
-- **[LavX News](https://news.lavx.hu)** – Latest insights on AI, Open Source, and emerging tech.
-- **[LMS Tools](https://tools.lavx.hu)** – 140+ free, privacy-focused online tools for developers and researchers.
-
-### 🛠️ Open Source Projects
-- **[AI Subtitle Translator](https://github.com/LavX/ai-subtitle-translator)** – LLM-powered subtitle translator using OpenRouter API.
-- **[OpenSubtitles Scraper](https://github.com/LavX/opensubtitles-scraper)** – Web scraper for OpenSubtitles.org (no VIP required).
-- **[Bazarr (LavX Fork)](https://github.com/LavX/bazarr)** – Automated subtitle management with OpenSubtitles.org scraper & AI translation.
-- **[JFrog to Nexus OSS](https://github.com/LavX/jfrogtonexusoss)** – Automated migration tool for repository managers.
-- **[WeatherFlow](https://github.com/LavX/weatherflow)** – Multi-platform weather data forwarding (WU to Windy/Idokep).
-- **[Like4Like Suite](https://github.com/LavX/Like4Like-Suite)** – Social media automation and engagement toolkit.
+Other projects:
+- [AI Subtitle Translator](https://github.com/LavX/ai-subtitle-translator) — LLM-powered subtitle translation via OpenRouter
+- [Bazarr (LavX Fork)](https://github.com/LavX/bazarr) — automated subtitle management with .org scraper and AI translation
+- [LMS Tools](https://tools.lavx.hu) — 140+ free, privacy-focused dev tools
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).
 
-The MIT License is a permissive open-source license that allows you to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, provided that you include the original copyright notice and disclaimer in all copies or substantial portions of the software.
-
-This project is created for educational and personal use. Please respect OpenSubtitles.org's terms of service and robots.txt when using this scraper.
-
-
-## 🙏 Acknowledgements
-
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern, fast (high-performance) web framework
-- [Cloudscraper](https://github.com/VeNoMouS/cloudscraper) - Python module to bypass Cloudflare's anti-bot page
-- [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) - Python library for pulling data out of HTML and XML files
+Use responsibly. Keep the default rate limits enabled.
