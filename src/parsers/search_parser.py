@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
 
 from ..utils.exceptions import ParseError
-from ..utils.helpers import extract_imdb_id, extract_year, normalize_title
+from ..utils.helpers import extract_imdb_id, normalize_title
 
 logger = logging.getLogger(__name__)
 
@@ -72,61 +72,6 @@ class SearchParser:
         except Exception as e:
             logger.error(f"Failed to parse search autocomplete: {e}")
             raise ParseError(f"Search parsing failed: {e}")
-    
-    def _parse_autocomplete_item(self, item) -> Optional[SearchResult]:
-        """Parse individual autocomplete item"""
-        try:
-            # Extract title and metadata
-            title_text = item.get_text(strip=True)
-            if not title_text:
-                return None
-            
-            # Extract URL
-            url = None
-            if item.name == 'a' and item.get('href'):
-                url = item['href']
-                if url.startswith('/'):
-                    url = self.base_url + url
-            
-            # Parse title and year from text
-            # Format examples: "Avatar (2009)", "Avatar: The Last Airbender (2005)"
-            year_match = re.search(r'\((\d{4})\)', title_text)
-            year = int(year_match.group(1)) if year_match else None
-            
-            # Clean title (remove year and extra info)
-            clean_title = re.sub(r'\s*\(\d{4}\).*$', '', title_text).strip()
-            
-            # Extract subtitle count if available
-            subtitle_count = 0
-            count_match = re.search(r'(\d+)\s*subtitles?', title_text, re.I)
-            if count_match:
-                subtitle_count = int(count_match.group(1))
-            
-            # Determine if it's a movie or TV show
-            kind = "movie"
-            if any(keyword in title_text.lower() for keyword in ['series', 'season', 'episode', 'tv']):
-                kind = "episode"
-            
-            # Extract IMDB ID if available in URL or data attributes
-            imdb_id = None
-            if url:
-                imdb_id = extract_imdb_id(url)
-            
-            if not imdb_id and item.get('data-imdb'):
-                imdb_id = item['data-imdb']
-            
-            return SearchResult(
-                title=clean_title,
-                year=year,
-                imdb_id=imdb_id,
-                url=url,
-                subtitle_count=subtitle_count,
-                kind=kind
-            )
-            
-        except Exception as e:
-            logger.warning(f"Failed to parse autocomplete item: {e}")
-            return None
     
     def parse_search_page(self, html_content: str) -> List[SearchResult]:
         """Parse full search results page"""

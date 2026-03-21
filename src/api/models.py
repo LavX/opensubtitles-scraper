@@ -1,13 +1,17 @@
 """Pydantic models for API requests and responses"""
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
+
+from ..utils.url_validator import ALLOWED_HOSTS
 
 
 class SearchRequest(BaseModel):
     """Request model for search endpoints"""
-    query: str = Field(..., description="Search query (movie/show title)")
+    query: str = Field(..., max_length=500, description="Search query (movie/show title)")
     year: Optional[int] = Field(None, description="Release year")
     imdb_id: Optional[str] = Field(None, description="IMDB ID")
     kind: Optional[str] = Field("movie", description="Content type: 'movie' or 'episode'")
@@ -34,6 +38,16 @@ class SubtitleRequest(BaseModel):
     """Request model for subtitle listings"""
     movie_url: str = Field(..., description="Movie/show URL from search results")
     languages: Optional[List[str]] = Field(None, description="Language codes to filter")
+
+    @field_validator("movie_url")
+    @classmethod
+    def validate_movie_url(cls, v: str) -> str:
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
+        if parsed.hostname not in ALLOWED_HOSTS:
+            raise ValueError(f"URL host not allowed: {parsed.hostname}")
+        return v
 
 
 class SubtitleInfo(BaseModel):
@@ -63,6 +77,16 @@ class DownloadRequest(BaseModel):
     """Request model for subtitle download"""
     subtitle_id: str = Field(..., description="Subtitle ID to download")
     download_url: str = Field(..., description="Download URL")
+
+    @field_validator("download_url")
+    @classmethod
+    def validate_download_url(cls, v: str) -> str:
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
+        if parsed.hostname not in ALLOWED_HOSTS:
+            raise ValueError(f"URL host not allowed: {parsed.hostname}")
+        return v
 
 
 class DownloadResponse(BaseModel):

@@ -158,24 +158,44 @@ Copy the example and adjust:
 cp .env.example .env
 ```
 
+### Rate Limits
+
+The service enforces rate limits in two places:
+
+```
+Bazarr ──► [ Inbound gate ] ──► Scraper ──► [ Outbound gate ] ──► OpenSubtitles.org
+```
+
+**Inbound (Bazarr → Scraper API)** — protects the scraper from being overwhelmed by concurrent callers. When the limit is hit, the API responds `429 Too Many Requests` with a `Retry-After` header.
+
 | Variable | Default | What it does |
 |---|---|---|
-| `SCRAPER_MIN_REQUEST_INTERVAL` | `1.0` | Min seconds between requests |
-| `SCRAPER_RATE_LIMIT_PER_MINUTE` | `60` | Max requests per 60s sliding window |
-| `SCRAPER_MAX_INFLIGHT_REQUESTS` | `2` | Concurrent API requests before queuing/rejecting |
-| `SCRAPER_MAX_CONCURRENT_REQUESTS` | `2` | Concurrent outbound connections to .org |
-| `SCRAPER_QUEUE_TIMEOUT` | `0` | Queue wait before 429 (0 = reject immediately) |
-| `SCRAPER_RETRY_AFTER_SECONDS` | `15` | Retry-After header value on 429 |
-| `SCRAPER_MAX_RETRIES` | `2` | Retries on 429/5xx from upstream |
+| `SCRAPER_MAX_INFLIGHT_REQUESTS` | `2` | Max concurrent API requests being processed. Extra requests are queued or rejected. |
+| `SCRAPER_QUEUE_TIMEOUT` | `0` | Seconds to wait in queue before returning 429. `0` = reject immediately (no queue). |
+| `SCRAPER_RETRY_AFTER_SECONDS` | `15` | Value of the `Retry-After` header sent with 429 responses. |
+
+**Outbound (Scraper → OpenSubtitles.org)** — prevents hammering .org. These are the core rate limits.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SCRAPER_MIN_REQUEST_INTERVAL` | `1.0` | Min seconds between any two requests to .org (per-second throttle). |
+| `SCRAPER_RATE_LIMIT_PER_MINUTE` | `60` | Max requests to .org in any 60-second sliding window. |
+| `SCRAPER_MAX_CONCURRENT_REQUESTS` | `2` | Max simultaneous outbound connections to .org. |
+
+Defaults enforce **1 req/s and 60 req/min to .org**, with at most **2 concurrent API requests** accepted from Bazarr.
+
+### Other Settings
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SCRAPER_MAX_RETRIES` | `2` | Retries on 429/5xx from .org |
 | `SCRAPER_RETRY_BACKOFF_FACTOR` | `2` | Backoff multiplier between retries |
-| `SCRAPER_REQUEST_TIMEOUT` | `30` | HTTP timeout in seconds |
+| `SCRAPER_REQUEST_TIMEOUT` | `30` | HTTP timeout per request in seconds |
 | `SCRAPER_MAX_POOL_CONNECTIONS` | `5` | Connection pools to cache |
 | `SCRAPER_MAX_POOL_SIZE` | `3` | Connections per pool |
 | `SCRAPER_MAX_REQUESTS_BEFORE_CLEANUP` | `20` | Requests between pool cleanup |
 | `FLARESOLVERR_URL` | _(unset)_ | FlareSolverr endpoint (e.g. `http://flaresolverr:8191/v1`). Leave unset to disable. |
 | `FLARESOLVERR_TIMEOUT` | `60` | Timeout in seconds for FlareSolverr challenge resolution |
-
-Defaults enforce **1 req/s and 60 req/min**. Adjust if you need looser or tighter limits.
 
 > **FlareSolverr note:** When running via `docker-compose.yml`, `FLARESOLVERR_URL` is pre-configured to use the sidecar service. To disable FlareSolverr, comment out both the `flaresolverr` service and the `FLARESOLVERR_URL` environment line in the compose file.
 

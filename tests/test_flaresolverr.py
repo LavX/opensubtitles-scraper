@@ -441,7 +441,7 @@ class TestThreadSafety:
 
         def make_request_thread():
             try:
-                resp = sm._fallback_to_flaresolverr("https://www.opensubtitles.org/test")
+                resp = sm._fallback_to_flaresolverr("https://www.opensubtitles.org")
                 results.append(resp)
             except Exception as e:
                 errors.append(e)
@@ -499,7 +499,7 @@ class TestCookieTTL:
             {"name": "cf_clearance", "value": "abc", "domain": ".opensubtitles.org",
              "expiry": time_module.time() + 3600},
         ]
-        assert sm._is_cloudflare_active("https://www.opensubtitles.org/test") is False
+        assert sm._is_cloudflare_active("https://www.opensubtitles.org") is False
 
     def test_does_not_skip_preflight_with_expired_cookies(self):
         sm = SessionManager()
@@ -515,7 +515,7 @@ class TestCookieTTL:
             mock_resp.status_code = 200
             mock_resp.headers = {}
             mock_head.return_value = mock_resp
-            result = sm._is_cloudflare_active("https://www.opensubtitles.org/test")
+            result = sm._is_cloudflare_active("https://www.opensubtitles.org")
         assert result is False  # not a challenge, but preflight DID run
         mock_head.assert_called_once()  # proves preflight was NOT skipped
         # Expired cookies should be cleared
@@ -533,7 +533,7 @@ class TestCookieTTL:
             mock_resp.status_code = 200
             mock_resp.headers = {}
             mock_head.return_value = mock_resp
-            sm._is_cloudflare_active("https://www.opensubtitles.org/test")
+            sm._is_cloudflare_active("https://www.opensubtitles.org")
         assert sm._flaresolverr_cookies == []
         assert sm._flaresolverr_user_agent is None
 
@@ -566,15 +566,13 @@ class TestMakeRequestErrors:
              patch.object(sm, "get_session") as mock_session:
             mock_session.return_value.request.side_effect = ReqConnectionError("refused")
             with pytest.raises(ServiceUnavailableError, match="Connection error"):
-                sm.make_request("GET", "https://example.com")
+                sm.make_request("GET", "https://www.opensubtitles.org")
 
     def test_request_exception_403_raises_cloudflare_error(self):
         """Line 451: RequestException with 403 status."""
         from src.utils.exceptions import CloudflareError
         from requests.exceptions import HTTPError
         sm = self._make_sm()
-        # Build a response that raise_for_status() will raise HTTPError for,
-        # with e.response set so the except RequestException branch sees status 403.
         mock_resp = Response()
         mock_resp.status_code = 403
         mock_resp._content = b"Forbidden"
@@ -582,12 +580,9 @@ class TestMakeRequestErrors:
         exc = HTTPError(response=mock_resp)
         with patch.object(sm, "_is_cloudflare_active", return_value=False), \
              patch.object(sm, "get_session") as mock_session:
-            # Make session.request return the response, then raise_for_status raises.
-            # We bypass raise_for_status by making session.request itself raise the
-            # HTTPError (which has e.response attached).
             mock_session.return_value.request.side_effect = exc
             with pytest.raises(CloudflareError, match="Access forbidden"):
-                sm.make_request("GET", "https://example.com")
+                sm.make_request("GET", "https://www.opensubtitles.org")
 
     def test_request_exception_503_raises_service_unavailable(self):
         """Line 453: RequestException with 503 status."""
@@ -603,7 +598,7 @@ class TestMakeRequestErrors:
              patch.object(sm, "get_session") as mock_session:
             mock_session.return_value.request.side_effect = exc
             with pytest.raises(ServiceUnavailableError, match="temporarily unavailable"):
-                sm.make_request("GET", "https://example.com")
+                sm.make_request("GET", "https://www.opensubtitles.org")
 
     def test_request_exception_other_status_raises_scraping_error(self):
         """Line 455: RequestException with non-403/503 status."""
@@ -619,7 +614,7 @@ class TestMakeRequestErrors:
              patch.object(sm, "get_session") as mock_session:
             mock_session.return_value.request.side_effect = exc
             with pytest.raises(ScrapingError, match="HTTP error 500"):
-                sm.make_request("GET", "https://example.com")
+                sm.make_request("GET", "https://www.opensubtitles.org")
 
     def test_request_exception_no_response_raises_scraping_error(self):
         """Line 457: RequestException without response object."""
@@ -630,7 +625,7 @@ class TestMakeRequestErrors:
              patch.object(sm, "get_session") as mock_session:
             mock_session.return_value.request.side_effect = RequestException("weird error")
             with pytest.raises(ScrapingError, match="Request error"):
-                sm.make_request("GET", "https://example.com")
+                sm.make_request("GET", "https://www.opensubtitles.org")
 
     def test_cleanup_on_error_suppresses_cleanup_exception(self):
         """Lines 463-466: _cleanup_on_error swallows exceptions from _cleanup_idle_connections."""
@@ -665,7 +660,7 @@ class TestFallbackEdgeCases:
         # No cookies, so preflight will run
         sm._flaresolverr_cookies = []
         with patch("requests.head", side_effect=Exception("DNS resolution failed")):
-            result = sm._is_cloudflare_active("https://www.opensubtitles.org/test")
+            result = sm._is_cloudflare_active("https://www.opensubtitles.org")
         assert result is False
 
     def test_preflight_timeout_returns_false(self):
@@ -674,7 +669,7 @@ class TestFallbackEdgeCases:
         sm = SessionManager()
         sm._flaresolverr_cookies = []
         with patch("requests.head", side_effect=Timeout("timed out")):
-            result = sm._is_cloudflare_active("https://www.opensubtitles.org/test")
+            result = sm._is_cloudflare_active("https://www.opensubtitles.org")
         assert result is False
 
     def test_preflight_connection_refused_returns_false(self):
@@ -683,7 +678,7 @@ class TestFallbackEdgeCases:
         sm = SessionManager()
         sm._flaresolverr_cookies = []
         with patch("requests.head", side_effect=ConnectionError("refused")):
-            result = sm._is_cloudflare_active("https://www.opensubtitles.org/test")
+            result = sm._is_cloudflare_active("https://www.opensubtitles.org")
         assert result is False
 
     def test_preflight_detects_cloudflare_via_head(self):
@@ -695,7 +690,7 @@ class TestFallbackEdgeCases:
         mock_resp.headers = {"cf-ray": "abc123"}
         mock_resp.text = "Blocked"
         with patch("requests.head", return_value=mock_resp):
-            result = sm._is_cloudflare_active("https://www.opensubtitles.org/test")
+            result = sm._is_cloudflare_active("https://www.opensubtitles.org")
         assert result is True
 
     def test_preflight_no_cloudflare(self):
@@ -706,7 +701,7 @@ class TestFallbackEdgeCases:
         mock_resp.status_code = 200
         mock_resp.headers = {}
         with patch("requests.head", return_value=mock_resp):
-            result = sm._is_cloudflare_active("https://www.opensubtitles.org/test")
+            result = sm._is_cloudflare_active("https://www.opensubtitles.org")
         assert result is False
 
     def test_fallback_reuses_existing_cookies(self):
@@ -727,7 +722,7 @@ class TestFallbackEdgeCases:
         normal_resp.headers["Content-Type"] = "text/html"
 
         with patch.object(sm.session, "request", return_value=normal_resp):
-            resp = sm._fallback_to_flaresolverr("https://www.opensubtitles.org/test")
+            resp = sm._fallback_to_flaresolverr("https://www.opensubtitles.org")
 
         assert resp.status_code == 200
         assert "Direct success" in resp.text

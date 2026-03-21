@@ -11,7 +11,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from requests.exceptions import RequestException, Timeout, ConnectionError
 
+from urllib.parse import urlparse as _urlparse
+
 from ..utils.exceptions import CloudflareError, ScrapingError, ServiceUnavailableError
+from ..utils.url_validator import validate_target_url
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,11 @@ class SessionManager:
         self._flaresolverr_solving = False
         self._flaresolverr_solve_done = threading.Event()
         self._flaresolverr_last_result = None
+        # Pre-compute FlareSolverr host for URL allowlist validation
+        _parsed_fs = _urlparse(self.flaresolverr_url) if self.flaresolverr_url else None
+        self._flaresolverr_extra_hosts = (
+            frozenset({_parsed_fs.hostname}) if _parsed_fs and _parsed_fs.hostname else frozenset()
+        )
 
         logger.info(
             "SessionManager config: min_interval=%.1fs, rate_limit=%d/min, "
@@ -141,41 +149,44 @@ class SessionManager:
 
     def _wait_for_rate_limit(self):
         """Wait if necessary to respect both per-second and per-minute rate limits"""
+        # --- Per-second throttle ---
         with self._rate_limit_lock:
-            # Per-second rate limit (min interval between requests)
             current_time = time.time()
             time_since_last = current_time - self.last_request_time
+            per_second_sleep = max(0, self.min_request_interval - time_since_last)
 
-            if time_since_last < self.min_request_interval:
-                sleep_time = self.min_request_interval - time_since_last
-                logger.debug(f"Per-second rate limit: sleeping for {sleep_time:.2f}s")
-                time.sleep(sleep_time)
+        if per_second_sleep > 0:
+            logger.debug(f"Per-second rate limit: sleeping for {per_second_sleep:.2f}s")
+            time.sleep(per_second_sleep)
 
-            # Per-minute sliding window rate limit
+        # --- Per-minute sliding window ---
+        with self._rate_limit_lock:
             now = time.time()
             window_start = now - 60.0
-            # Evict timestamps older than 60 seconds
             while self._request_timestamps and self._request_timestamps[0] < window_start:
                 self._request_timestamps.popleft()
 
+            per_minute_sleep = 0
             if len(self._request_timestamps) >= self._rate_limit_per_minute:
-                # Must wait until the oldest request in the window expires
                 oldest = self._request_timestamps[0]
-                sleep_time = oldest + 60.0 - now
-                if sleep_time > 0:
-                    logger.info(
-                        "Per-minute rate limit (%d/%d): sleeping for %.2fs",
-                        len(self._request_timestamps), self._rate_limit_per_minute, sleep_time,
-                    )
-                    time.sleep(sleep_time)
-                    # Re-evict after sleeping
-                    now = time.time()
-                    window_start = now - 60.0
-                    while self._request_timestamps and self._request_timestamps[0] < window_start:
-                        self._request_timestamps.popleft()
+                per_minute_sleep = max(0, oldest + 60.0 - now)
 
-            self._request_timestamps.append(time.time())
-            self.last_request_time = time.time()
+        if per_minute_sleep > 0:
+            logger.info(
+                "Per-minute rate limit (%d/%d): sleeping for %.2fs",
+                len(self._request_timestamps), self._rate_limit_per_minute, per_minute_sleep,
+            )
+            time.sleep(per_minute_sleep)
+
+        # --- Record this request ---
+        with self._rate_limit_lock:
+            # Re-evict after potential sleep
+            now = time.time()
+            window_start = now - 60.0
+            while self._request_timestamps and self._request_timestamps[0] < window_start:
+                self._request_timestamps.popleft()
+            self._request_timestamps.append(now)
+            self.last_request_time = now
 
     def _maybe_cleanup_connections(self):
         """Periodically cleanup idle connections to prevent resource leaks"""
@@ -391,6 +402,8 @@ class SessionManager:
 
         response = None
         try:
+            validate_target_url(url, extra_allowed_hosts=self._flaresolverr_extra_hosts)
+
             self._wait_for_rate_limit()
 
             # Pre-flight: quick check with plain requests to detect Cloudflare

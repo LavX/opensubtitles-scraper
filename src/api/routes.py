@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -62,11 +63,16 @@ def request_limit(scope: str):
         _request_semaphore.release()
 
 
+_scraper_lock = threading.Lock()
+
+
 def get_scraper() -> OpenSubtitlesScraper:
     """Get or create scraper instance"""
     global _scraper_instance
     if _scraper_instance is None:
-        _scraper_instance = OpenSubtitlesScraper()
+        with _scraper_lock:
+            if _scraper_instance is None:
+                _scraper_instance = OpenSubtitlesScraper()
     return _scraper_instance
 
 
@@ -75,7 +81,7 @@ router = APIRouter(prefix="/api/v1", tags=["opensubtitles-scraper"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check():
+def health_check():
     """Health check endpoint"""
     try:
         scraper = get_scraper()
@@ -113,7 +119,7 @@ async def health_check():
 
 
 @router.post("/search/movies", response_model=SearchResponse)
-async def search_movies(request: SearchRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
+def search_movies(request: SearchRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
     """Search for movies"""
     try:
         with request_limit("search_movies"):
@@ -160,7 +166,7 @@ async def search_movies(request: SearchRequest, scraper: OpenSubtitlesScraper = 
 
 
 @router.post("/search/tv", response_model=SearchResponse)
-async def search_tv_shows(request: SearchRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
+def search_tv_shows(request: SearchRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
     """Search for TV shows"""
     try:
         with request_limit("search_tv"):
@@ -207,7 +213,7 @@ async def search_tv_shows(request: SearchRequest, scraper: OpenSubtitlesScraper 
 
 
 @router.post("/subtitles", response_model=SubtitleResponse)
-async def get_subtitles(request: SubtitleRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
+def get_subtitles(request: SubtitleRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
     """Get subtitle listings for a movie/show"""
     try:
         with request_limit("subtitles"):
@@ -258,8 +264,8 @@ async def get_subtitles(request: SubtitleRequest, scraper: OpenSubtitlesScraper 
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/download", response_model=DownloadResponse)
-async def download_subtitle(request: DownloadRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
+@router.post("/download/subtitle", response_model=DownloadResponse)
+def download_subtitle(request: DownloadRequest, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
     """Download a subtitle file"""
     try:
         with request_limit("download"):
@@ -302,14 +308,14 @@ async def download_subtitle(request: DownloadRequest, scraper: OpenSubtitlesScra
 
 
 @router.post("/search")
-async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
+def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
     """
     Bazarr-compatible search endpoint
     Handles the format that Bazarr's OpenSubtitles scraper implementation expects
     """
     try:
         with request_limit("bazarr_search"):
-            logger.info(f"Bazarr search request: {request}")
+            logger.info("Bazarr search request: %d criteria", len(request.get('criteria', [])))
         
             # Extract criteria from Bazarr request format
             criteria = request.get('criteria', [])
@@ -327,7 +333,9 @@ async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(g
                     imdb_id = f"tt{criterion['imdbid']}"
                     season = criterion.get('season')
                     episode = criterion.get('episode')
-                    
+                    series_title = None
+                    movie_year = None
+
                     if season and episode:
                         # TV show search - use a generic query since we have IMDB ID
                         search_results = scraper.search_tv_shows(query="", imdb_id=imdb_id)
@@ -337,6 +345,8 @@ async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(g
                     
                     # Get subtitles for the first result
                     if search_results:
+                        series_title = search_results[0].title if season else None
+                        movie_year = getattr(search_results[0], 'year', None)
                         movie_url = search_results[0].url
                         languages = criterion.get('sublanguageid', '').split(',')
                         # Pass season and episode info for TV shows
@@ -369,7 +379,6 @@ async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(g
                     movie_name = getattr(sub, 'movie_name', '')
                     if season and episode and not movie_name and sub.release_name:
                         # Extract series name from release_name format: "Series Name" Episode Title
-                        import re
                         series_match = re.match(r'^"([^"]+)"', sub.release_name)
                         if series_match:
                             # Use the full release_name as movie_name, but clean it up for Bazarr
@@ -382,6 +391,9 @@ async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(g
                             # Fallback: try to construct from available data
                             movie_name = sub.release_name or f"Unknown Series S{season:02d}E{episode:02d}"
                             logger.debug(f"Fallback MovieName for subtitle {sub.subtitle_id}: '{movie_name}'")
+                    # Ensure MovieName uses "SeriesName" EpisodeTitle format for Bazarr regex
+                    if season and series_title and not movie_name.startswith('"'):
+                        movie_name = f'"{series_title}" {movie_name}'
                     
                     # Convert to Bazarr-expected format
                     subtitle_data = {
@@ -391,7 +403,7 @@ async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(g
                         'SubtitlesLink': f"/subtitle/{sub.subtitle_id}",
                         'MovieName': movie_name,  # ✅ Now properly populated for TV series
                         'MovieReleaseName': sub.release_name,
-                        'MovieYear': getattr(sub, 'movie_year', ''),
+                        'MovieYear': str(movie_year) if movie_year else getattr(sub, 'movie_year', ''),
                         'IDMovieImdb': criterion.get('imdbid', ''),
                         'SeriesIMDBParent': criterion.get('imdbid', '') if season else '',
                         'SeriesSeason': season or '',
@@ -419,27 +431,24 @@ async def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(g
         raise
     except CloudflareError as e:
         logger.error(f"Bazarr request blocked by Cloudflare: {e}")
-        return {'status': '503 Service Unavailable', 'data': []}
+        raise HTTPException(status_code=503, detail="Cloudflare protection active", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except ServiceUnavailableError as e:
         logger.error(f"Bazarr request - service unavailable: {e}")
-        return {'status': '503 Service Unavailable', 'data': []}
+        raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
         logger.error(f"Bazarr search failed: {e}")
-        return {
-            'status': '500 Internal Server Error',
-            'data': []
-        }
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/download")
-async def bazarr_download(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
+def bazarr_download(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scraper)):
     """
     Bazarr-compatible download endpoint
     Handles the format that Bazarr's OpenSubtitles scraper implementation expects
     """
     try:
         with request_limit("bazarr_download"):
-            logger.info(f"Bazarr download request: {request}")
+            logger.info("Bazarr download request: subtitle_id=%s", request.get('subtitle_id', 'N/A'))
         
             # Extract subtitle ID from request
             subtitle_id = request.get('subtitle_id')
@@ -481,16 +490,13 @@ async def bazarr_download(request: dict, scraper: OpenSubtitlesScraper = Depends
         raise
     except CloudflareError as e:
         logger.error(f"Bazarr request blocked by Cloudflare: {e}")
-        return {'status': '503 Service Unavailable', 'data': []}
+        raise HTTPException(status_code=503, detail="Cloudflare protection active", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except ServiceUnavailableError as e:
         logger.error(f"Bazarr request - service unavailable: {e}")
-        return {'status': '503 Service Unavailable', 'data': []}
+        raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
         logger.error(f"Bazarr download failed: {e}")
-        return {
-            'status': '500 Internal Server Error',
-            'data': []
-        }
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # Cleanup function

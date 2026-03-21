@@ -2,7 +2,6 @@
 
 import logging
 import re
-import urllib.parse
 from typing import List, Dict, Any, Optional
 
 from .session_manager import SessionManager
@@ -647,96 +646,5 @@ class OpenSubtitlesScraper:
                 except Exception:
                     pass
     
-    def _parse_episode_subtitle_link(self, link, season: int, episode: int) -> Optional[SubtitleInfo]:
-        """Parse subtitle link from episode page"""
-        try:
-            subtitle_url = link.get('href')
-            if subtitle_url.startswith('/'):
-                subtitle_url = self.base_url + subtitle_url
-            
-            # Extract subtitle ID
-            subtitle_id_match = re.search(r'/subtitles/(\d+)', subtitle_url)
-            if not subtitle_id_match:
-                return None
-            subtitle_id = subtitle_id_match.group(1)
-            
-            # Extract language from URL
-            language = self._extract_language_from_url(subtitle_url)
-            if not language:
-                language = "en"
-            
-            # Get link text and parent row for more info
-            link_text = link.get_text(strip=True)
-            row = link.find_parent('tr')
-            
-            # Extract release name from link text
-            release_name = link_text
-            
-            # Generate filename
-            filename = f"The.Exchange.S{season:02d}E{episode:02d}.{language}.srt"
-            
-            # Extract additional metadata from row
-            uploader = "unknown"
-            download_count = 0
-            rating = 0.0
-            
-            if row:
-                # Look for download count (pattern: "17x")
-                row_text = row.get_text()
-                count_match = re.search(r'(\d+)x', row_text)
-                if count_match:
-                    download_count = int(count_match.group(1))
-                
-                # Look for uploader
-                uploader_link = row.find('a', href=re.compile(r'/user/'))
-                if uploader_link:
-                    uploader = uploader_link.get_text(strip=True)
-            
-            # Determine subtitle flags
-            text_to_check = (link_text + " " + (row.get_text() if row else "")).lower()
-            hearing_impaired = bool(re.search(r'\b(hi|hearing.impaired|sdh)\b', text_to_check))
-            forced = bool(re.search(r'\b(forced|foreign)\b', text_to_check))
-            
-            return SubtitleInfo(
-                subtitle_id=subtitle_id,
-                language=language,
-                filename=filename,
-                release_name=release_name,
-                uploader=uploader,
-                download_count=download_count,
-                rating=rating,
-                hearing_impaired=hearing_impaired,
-                forced=forced,
-                fps=None,
-                download_url=subtitle_url,
-                upload_date=None
-            )
-            
-        except Exception as e:
-            logger.warning(f"Failed to parse episode subtitle link: {e}")
-            return None
-    
-    def _extract_language_from_url(self, url: str) -> Optional[str]:
-        """Extract language from subtitle URL"""
-        try:
-            # Pattern: /en/subtitles/ID/title-language
-            url_parts = url.split('/')
-            if len(url_parts) >= 4:
-                last_part = url_parts[-1]  # e.g., "the-exchange-bank-of-tomorrow-nl"
-                if '-' in last_part:
-                    language = last_part.split('-')[-1]
-                    if len(language) in [2, 3]:  # Valid language code (2 or 3 letter)
-                        return language
-            
-            # Fallback: extract from URL path
-            lang_match = re.search(r'/([a-z]{2,3})/', url)
-            if lang_match:
-                return lang_match.group(1)
-            
-            return None
-            
-        except Exception:
-            return None
-
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
