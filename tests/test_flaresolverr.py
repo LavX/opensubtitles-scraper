@@ -314,6 +314,94 @@ class TestMakeRequestFallback:
             with pytest.raises(Exception):
                 sm.make_request("GET", "https://www.opensubtitles.org/en/search")
 
+    def test_dmca_redirect_triggers_flaresolverr_re_solve(self):
+        """A redirect to /en/msg-dmca means stale cookies; should re-solve."""
+        sm = self._make_sm()
+
+        # Response that landed on the DMCA error page after redirect
+        dmca_resp = Response()
+        dmca_resp.status_code = 200
+        dmca_resp._content = b"<html>DMCA takedown</html>"
+        dmca_resp.headers["Content-Type"] = "text/html"
+        dmca_resp.url = "https://www.opensubtitles.org/en/msg-dmca"
+
+        flaresolverr_result = {
+            "html": "<html>Resolved after re-solve</html>",
+            "url": "https://www.opensubtitles.org/en/search/imdbid-123",
+            "status": 200,
+            "cookies": [{"name": "cf_clearance", "value": "new", "domain": ".opensubtitles.org"}],
+            "user_agent": "Mozilla/5.0 Fresh UA",
+        }
+
+        with patch.object(sm, "_is_cloudflare_active", return_value=False), \
+             patch.object(sm, "get_session") as mock_session, \
+             patch.object(sm, "_fallback_to_flaresolverr") as mock_fallback:
+            mock_session.return_value.request.return_value = dmca_resp
+            mock_fallback.return_value = sm._create_response_from_html(
+                flaresolverr_result["html"], flaresolverr_result["url"], 200
+            )
+            resp = sm.make_request(
+                "GET", "https://www.opensubtitles.org/en/search/imdbid-123"
+            )
+
+        mock_fallback.assert_called_once()
+        assert "Resolved after re-solve" in resp.text
+
+    def test_dmca_redirect_clears_stale_cookies(self):
+        """Stale cookies should be cleared before re-solving."""
+        sm = self._make_sm()
+        sm._flaresolverr_cookies = [
+            {"name": "cf_clearance", "value": "stale", "domain": ".opensubtitles.org"}
+        ]
+        sm._flaresolverr_user_agent = "Old UA"
+
+        dmca_resp = Response()
+        dmca_resp.status_code = 200
+        dmca_resp._content = b"DMCA"
+        dmca_resp.url = "https://www.opensubtitles.org/en/msg-dmca"
+
+        flaresolverr_result = {
+            "html": "<html>Fresh</html>",
+            "url": "https://www.opensubtitles.org/en/search",
+            "status": 200,
+            "cookies": [{"name": "cf_clearance", "value": "fresh", "domain": ".opensubtitles.org"}],
+            "user_agent": "Fresh UA",
+        }
+
+        with patch.object(sm, "_is_cloudflare_active", return_value=False), \
+             patch.object(sm, "get_session") as mock_session, \
+             patch.object(sm, "_fallback_to_flaresolverr") as mock_fallback:
+            mock_session.return_value.request.return_value = dmca_resp
+            mock_fallback.return_value = sm._create_response_from_html(
+                flaresolverr_result["html"], flaresolverr_result["url"], 200
+            )
+            sm.make_request("GET", "https://www.opensubtitles.org/en/search")
+
+        # Cookies should have been cleared before _fallback_to_flaresolverr was called
+        assert sm._flaresolverr_cookies == []
+        assert sm._flaresolverr_user_agent is None
+
+    def test_non_msg_redirect_is_not_treated_as_dmca(self):
+        """A redirect to a normal page should NOT trigger re-solve."""
+        sm = self._make_sm()
+
+        redirected_resp = Response()
+        redirected_resp.status_code = 200
+        redirected_resp._content = b"<html>Normal redirect</html>"
+        redirected_resp.headers["Content-Type"] = "text/html"
+        redirected_resp.url = "https://www.opensubtitles.org/en/search/result"
+
+        with patch.object(sm, "_is_cloudflare_active", return_value=False), \
+             patch.object(sm, "get_session") as mock_session, \
+             patch.object(sm, "_fallback_to_flaresolverr") as mock_fallback:
+            mock_session.return_value.request.return_value = redirected_resp
+            resp = sm.make_request(
+                "GET", "https://www.opensubtitles.org/en/search"
+            )
+
+        mock_fallback.assert_not_called()
+        assert resp.status_code == 200
+
 
 import threading
 import time as time_module
