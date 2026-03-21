@@ -425,6 +425,24 @@ class SessionManager:
                     pass
                 return self._fallback_to_flaresolverr(url)
 
+            # Detect stale-cookie redirects (e.g. /en/msg-dmca) that indicate
+            # the session is no longer valid and needs a fresh FlareSolverr solve.
+            if response.url and response.url != url:
+                final_path = response.url.rsplit("/", 1)[-1] if "/" in response.url else ""
+                if final_path.startswith("msg-"):
+                    logger.warning(
+                        "Redirected to error page %s (stale cookies?), re-solving via FlareSolverr",
+                        response.url,
+                    )
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+                    # Invalidate cached cookies so FlareSolverr runs fresh
+                    self._flaresolverr_cookies = []
+                    self._flaresolverr_user_agent = None
+                    return self._fallback_to_flaresolverr(url)
+
             response.raise_for_status()
             logger.debug(f"Request successful: {response.status_code}")
             return response

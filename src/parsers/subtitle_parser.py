@@ -436,24 +436,29 @@ class SubtitleParser:
             return None
     
     def _is_episode_list_page(self, soup: BeautifulSoup) -> bool:
-        """Check if this is a TV series episode list page"""
+        """Check if this is a TV series episode list page (season overview).
+
+        A season overview has a ``search_results`` table with season header rows
+        (e.g. "Season 1") and episode rows with numbering like "1.Episode Title".
+        A subtitle listing page (for a single episode) has ``td[id^=main]`` cells
+        with individual subtitle links -- that is NOT an episode list page.
+        """
         try:
-            # Look for season headers or episode structure
-            season_headers = soup.find_all(text=re.compile(r'Season \d+', re.I))
-            if season_headers:
-                return True
-            
-            # Look for episode links with IMDB IDs - but ONLY if we also see season/episode markers
-            # This prevents movie search results from being misidentified as TV series
-            episode_links = soup.find_all('a', href=re.compile(r'/imdbid-\d+'))
-            if len(episode_links) > 3:
-                # Additional check: verify there's actual episode data (not just movie links)
-                page_text = soup.get_text()
-                if re.search(r'(S\d{1,2}E\d{1,2}|Episode \d+)', page_text, re.I):
-                    return True
-            
+            # If the page has subtitle detail rows (td with id=main*), it's a
+            # subtitle listing page, not an episode list.
+            if soup.find('td', id=re.compile(r'^main\d+')):
+                return False
+
+            # Look for season header rows in a search_results table
+            table = soup.find('table', id='search_results')
+            if table:
+                row_texts = [row.get_text(strip=True) for row in table.find_all('tr')]
+                for text in row_texts:
+                    if re.match(r'^Season\s+\d+', text):
+                        return True
+
             return False
-            
+
         except Exception:
             return False
     
