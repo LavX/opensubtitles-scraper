@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 class SubtitleInfo:
     """Represents a subtitle from OpenSubtitles"""
     
-    def __init__(self, subtitle_id: str, language: str, filename: str, 
+    def __init__(self, subtitle_id: str, language: str, filename: str,
                  release_name: str, uploader: str, download_count: int = 0,
                  rating: float = 0.0, hearing_impaired: bool = False,
                  forced: bool = False, fps: Optional[float] = None,
-                 download_url: Optional[str] = None, upload_date: Optional[datetime] = None):
+                 download_url: Optional[str] = None, upload_date: Optional[datetime] = None,
+                 movie_year: Optional[int] = None):
         self.subtitle_id = subtitle_id
         self.language = language
         self.filename = filename
@@ -32,6 +33,7 @@ class SubtitleInfo:
         self.fps = fps
         self.download_url = download_url
         self.upload_date = upload_date
+        self.movie_year = movie_year
         
         # Extract additional info from filename
         file_info = extract_subtitle_info(filename)
@@ -56,7 +58,8 @@ class SubtitleInfo:
             'forced': self.forced,
             'fps': self.fps,
             'download_url': self.download_url,
-            'upload_date': self.upload_date.isoformat() if self.upload_date else None
+            'upload_date': self.upload_date.isoformat() if self.upload_date else None,
+            'movie_year': self.movie_year,
         }
 
 
@@ -155,7 +158,13 @@ class SubtitleParser:
             
             # Extract title and year from link text
             title_text = subtitle_link.get_text(strip=True)
-            
+
+            # Extract year from title text, e.g. '"Game of Thrones" Winter Is Coming (2011)'
+            movie_year = None
+            year_match = re.search(r'\((\d{4})\)', title_text)
+            if year_match:
+                movie_year = int(year_match.group(1))
+
             # Extract language from URL (last part after /)
             language = self._extract_language_from_url(subtitle_url)
             if not language:
@@ -253,7 +262,8 @@ class SubtitleParser:
                 forced=forced,
                 fps=fps,
                 download_url=subtitle_url,  # Use subtitle page URL for now
-                upload_date=upload_date
+                upload_date=upload_date,
+                movie_year=movie_year
             )
             
         except Exception as e:

@@ -19,6 +19,20 @@ from ..core.scraper import OpenSubtitlesScraper
 from ..utils.exceptions import SearchError, ScrapingError, DownloadError, CloudflareError, ServiceUnavailableError
 from .. import __version__
 
+# Map 2-letter ISO 639-1 codes to 3-letter OpenSubtitles codes (what Bazarr expects)
+_LANG_2_TO_3 = {
+    'en': 'eng', 'es': 'spa', 'fr': 'fre', 'de': 'ger', 'it': 'ita',
+    'pt': 'por', 'ru': 'rus', 'zh': 'chi', 'ja': 'jpn', 'ko': 'kor',
+    'ar': 'ara', 'nl': 'dut', 'pl': 'pol', 'hu': 'hun', 'cs': 'cze',
+    'ro': 'rum', 'el': 'gre', 'tr': 'tur', 'he': 'heb', 'vi': 'vie',
+    'th': 'tha', 'sv': 'swe', 'da': 'dan', 'fi': 'fin', 'no': 'nor',
+    'hr': 'hrv', 'bg': 'bul', 'sr': 'scc', 'sk': 'slo', 'sl': 'slv',
+    'uk': 'ukr', 'id': 'ind', 'ms': 'may', 'hi': 'hin', 'bn': 'ben',
+    'fa': 'per', 'ta': 'tam', 'te': 'tel', 'ur': 'urd', 'et': 'est',
+    'lv': 'lav', 'lt': 'lit', 'ka': 'geo', 'mk': 'mac', 'sq': 'alb',
+    'bs': 'bos', 'is': 'ice', 'gl': 'glg', 'eu': 'baq', 'ca': 'cat',
+}
+
 logger = logging.getLogger(__name__)
 
 # Global scraper instance
@@ -398,12 +412,12 @@ def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scr
                     # Convert to Bazarr-expected format
                     subtitle_data = {
                         'IDSubtitleFile': sub.subtitle_id,
-                        'SubLanguageID': sub.language,
+                        'SubLanguageID': _LANG_2_TO_3.get(sub.language, sub.language),
                         'SubFileName': sub.filename,
                         'SubtitlesLink': f"/subtitle/{sub.subtitle_id}",
                         'MovieName': movie_name,  # ✅ Now properly populated for TV series
                         'MovieReleaseName': sub.release_name,
-                        'MovieYear': str(movie_year) if movie_year else getattr(sub, 'movie_year', ''),
+                        'MovieYear': str(sub.movie_year) if getattr(sub, 'movie_year', None) else (str(movie_year) if movie_year else ''),
                         'IDMovieImdb': criterion.get('imdbid', ''),
                         'SeriesIMDBParent': criterion.get('imdbid', '') if season else '',
                         'SeriesSeason': season or '',

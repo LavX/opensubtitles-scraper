@@ -286,6 +286,22 @@ class TestGetEpisodeSubtitles:
         for sub in subtitles:
             assert sub.movie_name == "Winter Is Coming"
 
+    def test_extracts_movie_year_from_subtitle_titles(self):
+        """Subtitles should have movie_year extracted from '(2011)' in title text."""
+        scraper = self._make_scraper()
+
+        mock_resp = MagicMock()
+        mock_resp.text = SUBTITLE_LISTING_HTML
+        scraper.session_manager.get.return_value = mock_resp
+
+        subtitles = scraper._get_episode_subtitles(
+            SERIES_OVERVIEW_HTML, "https://example.com/series", season=1, episode=1
+        )
+
+        assert len(subtitles) == 2
+        for sub in subtitles:
+            assert sub.movie_year == 2011
+
     def test_handles_session_error_gracefully(self):
         scraper = self._make_scraper()
         scraper.session_manager.get.side_effect = Exception("Connection failed")
@@ -295,3 +311,53 @@ class TestGetEpisodeSubtitles:
         )
 
         assert subtitles == []
+
+
+class TestSubtitleInfoMovieYear:
+    """Tests for movie_year on SubtitleInfo."""
+
+    def test_movie_year_stored(self):
+        from src.parsers.subtitle_parser import SubtitleInfo
+        sub = SubtitleInfo(
+            subtitle_id="1", language="en", filename="test.srt",
+            release_name="Test", uploader="u", movie_year=2020,
+        )
+        assert sub.movie_year == 2020
+
+    def test_movie_year_default_none(self):
+        from src.parsers.subtitle_parser import SubtitleInfo
+        sub = SubtitleInfo(
+            subtitle_id="1", language="en", filename="test.srt",
+            release_name="Test", uploader="u",
+        )
+        assert sub.movie_year is None
+
+    def test_movie_year_in_to_dict(self):
+        from src.parsers.subtitle_parser import SubtitleInfo
+        sub = SubtitleInfo(
+            subtitle_id="1", language="en", filename="test.srt",
+            release_name="Test", uploader="u", movie_year=1994,
+        )
+        assert sub.to_dict()['movie_year'] == 1994
+
+
+class TestLangCodeMapping:
+    """Tests for 2-letter to 3-letter language code mapping in routes."""
+
+    def test_common_mappings(self):
+        from src.api.routes import _LANG_2_TO_3
+        assert _LANG_2_TO_3['en'] == 'eng'
+        assert _LANG_2_TO_3['hu'] == 'hun'
+        assert _LANG_2_TO_3['fr'] == 'fre'
+        assert _LANG_2_TO_3['pt'] == 'por'
+        assert _LANG_2_TO_3['zh'] == 'chi'
+
+    def test_passthrough_for_unknown(self):
+        from src.api.routes import _LANG_2_TO_3
+        # Unknown codes should be passed through via dict.get fallback
+        assert _LANG_2_TO_3.get('xx', 'xx') == 'xx'
+
+    def test_already_3_letter_passthrough(self):
+        from src.api.routes import _LANG_2_TO_3
+        # 3-letter codes aren't in the map, so .get returns them as-is
+        assert _LANG_2_TO_3.get('eng', 'eng') == 'eng'
