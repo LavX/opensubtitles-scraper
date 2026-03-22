@@ -24,7 +24,7 @@ If .org gets shut down before .com reaches parity, that's the operator's call �
 
 ## Features
 
-- Cloudflare bypass via [cloudscraper](https://github.com/VeNoMouS/cloudscraper) + [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) fallback
+- Cloudflare handling via [cloudscraper](https://github.com/VeNoMouS/cloudscraper) + [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) fallback
 - Automatic FlareSolverr integration when Cloudflare "Under Attack" mode is active
 - Cookie caching — FlareSolverr is only called once per challenge cycle, subsequent requests go direct
 - Full language support with ISO 639-1/639-2 mapping
@@ -54,7 +54,7 @@ graph LR
     end
 ```
 
-### Cloudflare Bypass Flow
+### Cloudflare Challenge Flow
 
 1. Pre-flight HEAD request detects Cloudflare challenge
 2. If active: FlareSolverr solves the challenge via headless browser
@@ -73,7 +73,7 @@ FlareSolverr is optional — if not configured, the scraper falls back to clouds
 # Optional: customise settings
 cp .env.example .env
 
-# Build and run (includes FlareSolverr sidecar for Cloudflare bypass)
+# Build and run (includes FlareSolverr sidecar for Cloudflare handling)
 docker-compose up
 ```
 

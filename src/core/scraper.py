@@ -413,7 +413,7 @@ class OpenSubtitlesScraper:
         try:
             logger.info(f"Downloading subtitle: {subtitle_info.subtitle_id}")
             
-            # Try direct download URL first (bypasses CAPTCHA issues)
+            # Try direct download URL first (avoids CAPTCHA page)
             direct_download_url = f"https://dl.opensubtitles.org/en/download/sub/{subtitle_info.subtitle_id}"
             logger.debug(f"Attempting direct download from: {direct_download_url}")
             
