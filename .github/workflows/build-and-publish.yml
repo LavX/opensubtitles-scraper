@@ -29,19 +29,18 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
-          allow-prereleases: true
+          python-version: '3.13'
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install vendor/cloudscraper-3.0.0.zip
           pip install -r requirements.txt
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov httpx
 
       - name: Run tests
         run: |
-          python -m pytest tests/ -v --cov=src.core.session_manager --cov-report=term-missing
+          python -m pytest tests/ -v --cov=src --cov-report=term-missing
 
   build-and-push:
     needs: test
