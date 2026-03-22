@@ -12,6 +12,8 @@ from ..utils.helpers import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
+MAX_SUBTITLE_SIZE = 10 * 1024 * 1024  # 10 MB
+
 
 class DownloadParser:
     """Parser for OpenSubtitles download functionality"""
@@ -170,7 +172,15 @@ class DownloadParser:
                     # Check if it's a subtitle file
                     if not re.search(r'\.(srt|sub|ass|vtt|ssa)$', filename, re.I):
                         continue
-                    
+
+                    # Check file size before extraction to prevent zip bombs
+                    if file_info.file_size > MAX_SUBTITLE_SIZE:
+                        logger.warning(
+                            "Skipping %s: file size %d bytes exceeds %d byte limit",
+                            filename, file_info.file_size, MAX_SUBTITLE_SIZE,
+                        )
+                        continue
+
                     # Read file content
                     try:
                         file_content = zip_file.read(filename)

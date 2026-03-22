@@ -12,7 +12,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router, cleanup_scraper
-from src.api.download_routes import router as download_router
 from src import __version__, __description__
 
 # Configure logging
@@ -48,8 +47,8 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,19 +60,19 @@ app.include_router(router)
 from src.api.routes import bazarr_search, bazarr_download, get_scraper
 
 @app.post("/search")
-async def search_endpoint(request: dict):
+def search_endpoint(request: dict):
     """Bazarr-compatible search endpoint (direct access)"""
     scraper = get_scraper()
-    return await bazarr_search(request, scraper)
+    return bazarr_search(request, scraper)
 
 @app.post("/download")
-async def download_endpoint(request: dict):
+def download_endpoint(request: dict):
     """Bazarr-compatible download endpoint (direct access)"""
     scraper = get_scraper()
-    return await bazarr_download(request, scraper)
+    return bazarr_download(request, scraper)
 
 @app.get("/")
-async def root():
+def root():
     """Root endpoint"""
     return {
         "service": "OpenSubtitles Scraper",
@@ -85,7 +84,7 @@ async def root():
 
 
 @app.get("/health")
-async def health():
+def health():
     """Simple health check endpoint (root level for easy access)"""
     scraper = get_scraper()
     return {
@@ -100,6 +99,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",  # Listen on all interfaces so other machines can connect
         port=8000,
-        reload=True,
+        reload=os.environ.get("DEBUG", "").lower() in ("true", "1"),
         log_level="info"
     )

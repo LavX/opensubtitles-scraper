@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 class SubtitleInfo:
     """Represents a subtitle from OpenSubtitles"""
     
-    def __init__(self, subtitle_id: str, language: str, filename: str, 
+    def __init__(self, subtitle_id: str, language: str, filename: str,
                  release_name: str, uploader: str, download_count: int = 0,
                  rating: float = 0.0, hearing_impaired: bool = False,
                  forced: bool = False, fps: Optional[float] = None,
-                 download_url: Optional[str] = None, upload_date: Optional[datetime] = None):
+                 download_url: Optional[str] = None, upload_date: Optional[datetime] = None,
+                 movie_year: Optional[int] = None):
         self.subtitle_id = subtitle_id
         self.language = language
         self.filename = filename
@@ -32,6 +33,7 @@ class SubtitleInfo:
         self.fps = fps
         self.download_url = download_url
         self.upload_date = upload_date
+        self.movie_year = movie_year
         
         # Extract additional info from filename
         file_info = extract_subtitle_info(filename)
@@ -56,7 +58,8 @@ class SubtitleInfo:
             'forced': self.forced,
             'fps': self.fps,
             'download_url': self.download_url,
-            'upload_date': self.upload_date.isoformat() if self.upload_date else None
+            'upload_date': self.upload_date.isoformat() if self.upload_date else None,
+            'movie_year': self.movie_year,
         }
 
 
@@ -155,7 +158,13 @@ class SubtitleParser:
             
             # Extract title and year from link text
             title_text = subtitle_link.get_text(strip=True)
-            
+
+            # Extract year from title text, e.g. '"Game of Thrones" Winter Is Coming (2011)'
+            movie_year = None
+            year_match = re.search(r'\((\d{4})\)', title_text)
+            if year_match:
+                movie_year = int(year_match.group(1))
+
             # Extract language from URL (last part after /)
             language = self._extract_language_from_url(subtitle_url)
             if not language:
@@ -253,7 +262,8 @@ class SubtitleParser:
                 forced=forced,
                 fps=fps,
                 download_url=subtitle_url,  # Use subtitle page URL for now
-                upload_date=upload_date
+                upload_date=upload_date,
+                movie_year=movie_year
             )
             
         except Exception as e:
@@ -305,155 +315,30 @@ class SubtitleParser:
         except Exception:
             return None
     
-    def _extract_language_from_row(self, row) -> Optional[str]:
-        """Extract language from table row"""
-        try:
-            # Look for language cell or flag
-            lang_cell = row.find('td', class_=re.compile(r'lang', re.I))
-            if lang_cell:
-                lang_text = lang_cell.get_text(strip=True)
-                # Extract language code
-                lang_match = re.search(r'\b([a-z]{2,3})\b', lang_text.lower())
-                if lang_match:
-                    return lang_match.group(1)
-            
-            # Look for flag images
-            flag_img = row.find('img', src=re.compile(r'flag|lang'))
-            if flag_img and flag_img.get('alt'):
-                return flag_img['alt'].lower()[:3]
-            
-            # Fallback: search entire row text
-            row_text = row.get_text().lower()
-            lang_match = re.search(r'\b(eng|spa|fre|ger|ita|por|rus|chi|jpn|kor|[a-z]{2,3})\b', row_text)
-            if lang_match:
-                return lang_match.group(1)
-            
-            return None
-            
-        except Exception:
-            return None
-    
-    def _extract_filename_from_row(self, row) -> Optional[str]:
-        """Extract filename from table row"""
-        try:
-            # Look for filename in link text or title
-            filename_link = row.find('a', title=re.compile(r'\.srt|\.sub|\.ass'))
-            if filename_link:
-                return sanitize_filename(filename_link.get('title', ''))
-            
-            # Look for filename in cell text
-            cells = row.find_all('td')
-            for cell in cells:
-                text = cell.get_text(strip=True)
-                if re.search(r'\.(srt|sub|ass|vtt)$', text, re.I):
-                    return sanitize_filename(text)
-            
-            return None
-            
-        except Exception:
-            return None
-    
-    def _extract_release_name_from_row(self, row) -> Optional[str]:
-        """Extract release name from table row"""
-        try:
-            # Look for release name in specific cell or link
-            release_cell = row.find('td', class_=re.compile(r'release|movie', re.I))
-            if release_cell:
-                return release_cell.get_text(strip=True)
-            
-            # Look for release info in row text
-            row_text = row.get_text()
-            # Common release patterns
-            release_match = re.search(r'([A-Za-z0-9\.\-_]+(?:BluRay|BDRip|DVDRip|WEBRip|HDTV|720p|1080p)[A-Za-z0-9\.\-_]*)', row_text)
-            if release_match:
-                return release_match.group(1)
-            
-            return None
-            
-        except Exception:
-            return None
-    
-    def _extract_uploader_from_row(self, row) -> Optional[str]:
-        """Extract uploader from table row"""
-        try:
-            # Look for uploader link or cell
-            uploader_link = row.find('a', href=re.compile(r'/user/'))
-            if uploader_link:
-                return uploader_link.get_text(strip=True)
-            
-            uploader_cell = row.find('td', class_=re.compile(r'uploader|user', re.I))
-            if uploader_cell:
-                return uploader_cell.get_text(strip=True)
-            
-            return None
-            
-        except Exception:
-            return None
-    
-    def _extract_download_count_from_row(self, row) -> int:
-        """Extract download count from table row"""
-        try:
-            # Look for download count in cell or text
-            count_cell = row.find('td', class_=re.compile(r'download|count', re.I))
-            if count_cell:
-                count_text = count_cell.get_text(strip=True)
-                count_match = re.search(r'(\d+)', count_text)
-                if count_match:
-                    return int(count_match.group(1))
-            
-            return 0
-            
-        except Exception:
-            return 0
-    
-    def _extract_rating_from_row(self, row) -> float:
-        """Extract rating from table row"""
-        try:
-            # Look for rating in cell or stars
-            rating_cell = row.find('td', class_=re.compile(r'rating|score', re.I))
-            if rating_cell:
-                rating_text = rating_cell.get_text(strip=True)
-                rating_match = re.search(r'(\d+(?:\.\d+)?)', rating_text)
-                if rating_match:
-                    return float(rating_match.group(1))
-            
-            return 0.0
-            
-        except Exception:
-            return 0.0
-    
-    def _extract_fps_from_row(self, row) -> Optional[float]:
-        """Extract FPS from table row"""
-        try:
-            row_text = row.get_text()
-            fps_match = re.search(r'(\d+(?:\.\d+)?)\s*fps', row_text, re.I)
-            if fps_match:
-                return float(fps_match.group(1))
-            
-            return None
-            
-        except Exception:
-            return None
-    
     def _is_episode_list_page(self, soup: BeautifulSoup) -> bool:
-        """Check if this is a TV series episode list page"""
+        """Check if this is a TV series episode list page (season overview).
+
+        A season overview has a ``search_results`` table with season header rows
+        (e.g. "Season 1") and episode rows with numbering like "1.Episode Title".
+        A subtitle listing page (for a single episode) has ``td[id^=main]`` cells
+        with individual subtitle links -- that is NOT an episode list page.
+        """
         try:
-            # Look for season headers or episode structure
-            season_headers = soup.find_all(text=re.compile(r'Season \d+', re.I))
-            if season_headers:
-                return True
-            
-            # Look for episode links with IMDB IDs - but ONLY if we also see season/episode markers
-            # This prevents movie search results from being misidentified as TV series
-            episode_links = soup.find_all('a', href=re.compile(r'/imdbid-\d+'))
-            if len(episode_links) > 3:
-                # Additional check: verify there's actual episode data (not just movie links)
-                page_text = soup.get_text()
-                if re.search(r'(S\d{1,2}E\d{1,2}|Episode \d+)', page_text, re.I):
-                    return True
-            
+            # If the page has subtitle detail rows (td with id=main*), it's a
+            # subtitle listing page, not an episode list.
+            if soup.find('td', id=re.compile(r'^main\d+')):
+                return False
+
+            # Look for season header rows in a search_results table
+            table = soup.find('table', id='search_results')
+            if table:
+                row_texts = [row.get_text(strip=True) for row in table.find_all('tr')]
+                for text in row_texts:
+                    if re.match(r'^Season\s+\d+', text):
+                        return True
+
             return False
-            
+
         except Exception:
             return False
     

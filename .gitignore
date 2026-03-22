@@ -25,3 +25,8 @@ VERSION
 !*.dll
 
 /.roo
+
+# Environment files
+.env
+.env.*
+!.env.example

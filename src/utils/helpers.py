@@ -1,10 +1,9 @@
 """Helper utilities for OpenSubtitles scraper"""
 
 import re
-import hashlib
 import logging
 from typing import Optional, Dict, Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +41,17 @@ def normalize_title(title: str) -> str:
 
 def extract_year(text: str) -> Optional[int]:
     """Extract year from text"""
-    pattern = r'\b(19|20)\d{2}\b'
-    matches = re.findall(pattern, text)
-    if matches:
-        years = [int(match + text[text.find(match):text.find(match)+4]) for match in matches]
-        # Return the most recent year found
-        return max(years)
-    return None
+    try:
+        matches = re.findall(r'\b((?:19|20)\d{2})\b', text)
+        if matches:
+            years = [int(m) for m in matches]
+            current_year = 2026
+            valid_years = [y for y in years if 1900 <= y <= current_year + 1]
+            if valid_years:
+                return valid_years[-1]
+        return None
+    except Exception:
+        return None
 
 
 def build_url(base_url: str, path: str, params: Optional[Dict[str, Any]] = None) -> str:
@@ -67,35 +70,6 @@ def build_url(base_url: str, path: str, params: Optional[Dict[str, Any]] = None)
             url = f"{url}{separator}{param_str}"
     
     return url
-
-
-def calculate_file_hash(file_path: str) -> str:
-    """Calculate OpenSubtitles-compatible file hash"""
-    try:
-        with open(file_path, 'rb') as f:
-            # Read first and last 64KB
-            f.seek(0)
-            first_chunk = f.read(65536)
-            
-            f.seek(-65536, 2)  # Seek to 64KB from end
-            last_chunk = f.read(65536)
-            
-            # Get file size
-            f.seek(0, 2)
-            file_size = f.tell()
-            
-            # Calculate hash
-            hash_value = file_size
-            for chunk in [first_chunk, last_chunk]:
-                for i in range(0, len(chunk), 8):
-                    if i + 8 <= len(chunk):
-                        hash_value += int.from_bytes(chunk[i:i+8], byteorder='little', signed=False)
-                        hash_value &= 0xFFFFFFFFFFFFFFFF  # Keep it 64-bit
-            
-            return f"{hash_value:016x}"
-    except Exception as e:
-        logger.error(f"Error calculating file hash: {e}")
-        return ""
 
 
 def is_valid_url(url: str) -> bool:

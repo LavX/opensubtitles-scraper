@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+.coverage
+.pytest_cache
+__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+docs/
+tests/
+debug_*.py
+test_*.py
+BAZARR_*.md
+TESTING.md

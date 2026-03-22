@@ -10,6 +10,8 @@ from .exceptions import ScrapingError
 
 logger = logging.getLogger(__name__)
 
+MAX_CACHE_SIZE = 500
+
 
 class IMDBLookupService:
     """Service to lookup movie/TV show titles from IMDB IDs"""
@@ -60,6 +62,9 @@ class IMDBLookupService:
             title = self._extract_title_from_html(html_content)
             
             if title:
+                # Evict oldest entries if cache is full
+                if len(self.cache) >= MAX_CACHE_SIZE:
+                    self.cache.clear()
                 # Cache the result
                 self.cache[cache_key] = {
                     'title': title,

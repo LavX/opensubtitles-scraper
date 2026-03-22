@@ -68,6 +68,10 @@ class Episode(Video):
     def title(self):
         return self.series
 
+    @title.setter
+    def title(self, value):
+        pass  # Ignored — title is derived from series for episodes
+
 
 class Movie(Video):
     """Movie representation compatible with Bazarr"""

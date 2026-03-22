@@ -27,7 +27,7 @@ class SearchError(OpenSubtitlesScraperError):
 
 
 class CloudflareError(OpenSubtitlesScraperError):
-    """Raised when Cloudflare protection cannot be bypassed"""
+    """Raised when Cloudflare challenge cannot be resolved"""
     pass
 
 

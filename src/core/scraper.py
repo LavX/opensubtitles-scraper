@@ -2,7 +2,6 @@
 
 import logging
 import re
-import urllib.parse
 from typing import List, Dict, Any, Optional
 
 from .session_manager import SessionManager
@@ -414,7 +413,7 @@ class OpenSubtitlesScraper:
         try:
             logger.info(f"Downloading subtitle: {subtitle_info.subtitle_id}")
             
-            # Try direct download URL first (bypasses CAPTCHA issues)
+            # Try direct download URL first (avoids CAPTCHA page)
             direct_download_url = f"https://dl.opensubtitles.org/en/download/sub/{subtitle_info.subtitle_id}"
             logger.debug(f"Attempting direct download from: {direct_download_url}")
             
@@ -545,167 +544,107 @@ class OpenSubtitlesScraper:
     
     def _get_episode_subtitles(self, html_content: str, series_url: str,
                               season: int, episode: int, languages: Optional[List[str]] = None) -> List[SubtitleInfo]:
-        """Get subtitles for a specific episode from TV series page"""
+        """Get subtitles for a specific episode from TV series page.
+
+        The page has a ``search_results`` table structured as:
+        - Season header rows with text like "Season 1"
+        - Episode rows with first TD like "1.Winter Is Coming" and an <a>
+          linking to ``/en/search/sublanguageid-XXX/imdbid-NNNNNNN``
+
+        We locate the correct season header, then iterate rows until the next
+        season header to find the episode by its number prefix.
+        """
         episode_response = None
         try:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Look for the specific episode in the episode list
-            # Find all episode links
-            episode_links = soup.find_all('a', href=re.compile(r'/en/search/sublanguageid-all/imdbid-\d+'))
-            
-            target_episode_url = None
-            logger.debug(f"Looking for episode {episode} in {len(episode_links)} episode links")
-            
-            # Episode 1 is the first link, episode 2 is the second, etc.
-            if 1 <= episode <= len(episode_links):
-                target_link = episode_links[episode - 1]  # Convert to 0-based index
-                target_episode_url = target_link.get('href')
-                if target_episode_url.startswith('/'):
-                    target_episode_url = self.base_url + target_episode_url
-                
-                # Modify URL to search for specific language to avoid pagination issues
-                if languages:
-                    lang_code = languages[0].lower()
-                    target_episode_url = target_episode_url.replace('sublanguageid-all', f'sublanguageid-{lang_code}')
-                    logger.debug(f"Modified target URL for language {lang_code}: {target_episode_url}")
 
-                link_text = target_link.get_text(strip=True)
-                logger.info(f"Found target episode {episode}: {link_text} -> {target_episode_url}")
-            else:
-                logger.warning(f"Episode {episode} not found (only {len(episode_links)} episodes available)")
-            
+            table = soup.find('table', id='search_results')
+            if not table:
+                logger.warning("No search_results table found on series page")
+                return []
+
+            rows = table.find_all('tr')
+            logger.debug(f"search_results table has {len(rows)} rows")
+
+            # --- 1. Find the target season section ---
+            in_target_season = False
+            target_episode_url = None
+            episode_title = None
+
+            for row in rows:
+                row_text = row.get_text(strip=True)
+
+                # Detect season header rows (e.g. "Season 1", "Season 2")
+                season_match = re.match(r'^Season\s+(\d+)', row_text)
+                if season_match:
+                    s_num = int(season_match.group(1))
+                    if s_num == season:
+                        in_target_season = True
+                        logger.debug(f"Entered target season {season}")
+                    elif in_target_season:
+                        # We passed the target season without finding the episode
+                        logger.debug(f"Left target season {season} at season {s_num}")
+                        break
+                    continue
+
+                if not in_target_season:
+                    continue
+
+                # --- 2. Inside the target season, look for episode rows ---
+                # Episode rows have an <a> with href like /en/search/sublanguageid-XXX/imdbid-NNNNN
+                ep_link = row.find('a', href=re.compile(r'/en/search/sublanguageid-\w+/imdbid-\d+'))
+                if not ep_link:
+                    continue
+
+                # The first TD text starts with "N." (episode number)
+                first_td = row.find('td')
+                if not first_td:
+                    continue
+                td_text = first_td.get_text(strip=True)
+                ep_num_match = re.match(r'^(\d+)\.', td_text)
+                if not ep_num_match:
+                    continue
+
+                ep_num = int(ep_num_match.group(1))
+                if ep_num == episode:
+                    target_episode_url = ep_link.get('href')
+                    if target_episode_url.startswith('/'):
+                        target_episode_url = self.base_url + target_episode_url
+                    episode_title = ep_link.get_text(strip=True)
+                    logger.info(f"Found target episode S{season:02d}E{episode:02d}: {episode_title} -> {target_episode_url}")
+                    break
+
             if not target_episode_url:
                 logger.warning(f"Could not find episode S{season:02d}E{episode:02d} in series page")
                 return []
-            
-            # Get subtitles from the specific episode page
+
+            # --- 3. Fetch the episode subtitle listing page ---
             episode_response = self.session_manager.get(target_episode_url)
             episode_html = episode_response.text
             episode_response.close()
             episode_response = None
-            
-            episode_soup = BeautifulSoup(episode_html, 'html.parser')
-            
-            subtitles = []
-            
-            # Look for subtitle links in the episode page
-            subtitle_links = episode_soup.find_all('a', href=re.compile(r'/en/subtitles/\d+'))
-            
-            for link in subtitle_links:
-                try:
-                    subtitle = self._parse_episode_subtitle_link(link, season, episode)
-                    if subtitle:
-                        subtitles.append(subtitle)
-                except Exception as e:
-                    logger.warning(f"Failed to parse episode subtitle link: {e}")
-                    continue
-            
+
+            # Use the subtitle_parser which already knows how to parse subtitle listing pages
+            subtitles = self.subtitle_parser.parse_subtitle_page(episode_html, target_episode_url)
+
+            # Attach episode metadata to each subtitle
+            for sub in subtitles:
+                if not getattr(sub, 'movie_name', None):
+                    sub.movie_name = episode_title or ''
+
             logger.info(f"Found {len(subtitles)} subtitles for S{season:02d}E{episode:02d}")
             return subtitles
-            
+
         except Exception as e:
             logger.error(f"Failed to get episode subtitles: {e}")
             return []
         finally:
-            # Ensure response is closed
             if episode_response:
                 try:
                     episode_response.close()
                 except Exception:
                     pass
     
-    def _parse_episode_subtitle_link(self, link, season: int, episode: int) -> Optional[SubtitleInfo]:
-        """Parse subtitle link from episode page"""
-        try:
-            subtitle_url = link.get('href')
-            if subtitle_url.startswith('/'):
-                subtitle_url = self.base_url + subtitle_url
-            
-            # Extract subtitle ID
-            subtitle_id_match = re.search(r'/subtitles/(\d+)', subtitle_url)
-            if not subtitle_id_match:
-                return None
-            subtitle_id = subtitle_id_match.group(1)
-            
-            # Extract language from URL
-            language = self._extract_language_from_url(subtitle_url)
-            if not language:
-                language = "en"
-            
-            # Get link text and parent row for more info
-            link_text = link.get_text(strip=True)
-            row = link.find_parent('tr')
-            
-            # Extract release name from link text
-            release_name = link_text
-            
-            # Generate filename
-            filename = f"The.Exchange.S{season:02d}E{episode:02d}.{language}.srt"
-            
-            # Extract additional metadata from row
-            uploader = "unknown"
-            download_count = 0
-            rating = 0.0
-            
-            if row:
-                # Look for download count (pattern: "17x")
-                row_text = row.get_text()
-                count_match = re.search(r'(\d+)x', row_text)
-                if count_match:
-                    download_count = int(count_match.group(1))
-                
-                # Look for uploader
-                uploader_link = row.find('a', href=re.compile(r'/user/'))
-                if uploader_link:
-                    uploader = uploader_link.get_text(strip=True)
-            
-            # Determine subtitle flags
-            text_to_check = (link_text + " " + (row.get_text() if row else "")).lower()
-            hearing_impaired = bool(re.search(r'\b(hi|hearing.impaired|sdh)\b', text_to_check))
-            forced = bool(re.search(r'\b(forced|foreign)\b', text_to_check))
-            
-            return SubtitleInfo(
-                subtitle_id=subtitle_id,
-                language=language,
-                filename=filename,
-                release_name=release_name,
-                uploader=uploader,
-                download_count=download_count,
-                rating=rating,
-                hearing_impaired=hearing_impaired,
-                forced=forced,
-                fps=None,
-                download_url=subtitle_url,
-                upload_date=None
-            )
-            
-        except Exception as e:
-            logger.warning(f"Failed to parse episode subtitle link: {e}")
-            return None
-    
-    def _extract_language_from_url(self, url: str) -> Optional[str]:
-        """Extract language from subtitle URL"""
-        try:
-            # Pattern: /en/subtitles/ID/title-language
-            url_parts = url.split('/')
-            if len(url_parts) >= 4:
-                last_part = url_parts[-1]  # e.g., "the-exchange-bank-of-tomorrow-nl"
-                if '-' in last_part:
-                    language = last_part.split('-')[-1]
-                    if len(language) in [2, 3]:  # Valid language code (2 or 3 letter)
-                        return language
-            
-            # Fallback: extract from URL path
-            lang_match = re.search(r'/([a-z]{2,3})/', url)
-            if lang_match:
-                return lang_match.group(1)
-            
-            return None
-            
-        except Exception:
-            return None
-
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
