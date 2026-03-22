@@ -1,4 +1,4 @@
-"""Tests for src/api/routes.py, src/api/models.py, and src/api/download_routes.py"""
+"""Tests for src/api/routes.py and src/api/models.py"""
 
 import base64
 import threading
@@ -789,20 +789,3 @@ class TestScraperLifecycle:
         routes_mod._scraper_instance = original
 
 
-# ---------------------------------------------------------------------------
-# download_routes.py (dead-code module — test models and function directly)
-# ---------------------------------------------------------------------------
-
-class TestDownloadRoutesModule:
-    def test_download_request_model(self):
-        from src.api.download_routes import DownloadRequest
-        r = DownloadRequest(download_url="https://example.com/sub.srt")
-        assert r.download_url == "https://example.com/sub.srt"
-
-    def test_download_response_model(self):
-        from src.api.download_routes import DownloadResponse
-        r = DownloadResponse(content="abc", filename="f.srt")
-        assert r.encoding == "utf-8"
-
-    # download_routes.py is dead code (router never mounted in main.py).
-    # The async handler tests are omitted since the module is slated for removal.
