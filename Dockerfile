@@ -1,5 +1,5 @@
-# Use Python 3.14 slim as base image with JIT support
-FROM python:3.14-slim
+# Use Python 3.13 slim as base image with JIT support
+FROM python:3.13-slim
 
 # Set working directory
 WORKDIR /app
