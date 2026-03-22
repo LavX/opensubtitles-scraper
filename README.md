@@ -171,7 +171,7 @@ Bazarr ──► [ Inbound gate ] ──► Scraper ──► [ Outbound gate ] 
 | Variable | Default | What it does |
 |---|---|---|
 | `SCRAPER_MAX_INFLIGHT_REQUESTS` | `2` | Max concurrent API requests being processed. Extra requests are queued or rejected. |
-| `SCRAPER_QUEUE_TIMEOUT` | `0` | Seconds to wait in queue before returning 429. `0` = reject immediately (no queue). |
+| `SCRAPER_QUEUE_TIMEOUT` | `30` | Seconds to wait in queue before returning 429. Gives in-flight FlareSolverr requests time to finish. |
 | `SCRAPER_RETRY_AFTER_SECONDS` | `15` | Value of the `Retry-After` header sent with 429 responses. |
 
 **Outbound (Scraper → OpenSubtitles.org)** — prevents hammering .org. These are the core rate limits.

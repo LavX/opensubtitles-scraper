@@ -44,7 +44,7 @@ MAX_INFLIGHT_REQUESTS = max(
     1,
 )
 REQUEST_QUEUE_TIMEOUT = max(
-    float(os.environ.get("SCRAPER_QUEUE_TIMEOUT", "0")),
+    float(os.environ.get("SCRAPER_QUEUE_TIMEOUT", "30")),
     0,
 )
 RETRY_AFTER_SECONDS = max(
@@ -57,14 +57,17 @@ _request_semaphore = threading.BoundedSemaphore(MAX_INFLIGHT_REQUESTS)
 
 @contextmanager
 def request_limit(scope: str):
-    """Limit concurrent requests to protect the scraper service."""
-    if REQUEST_QUEUE_TIMEOUT > 0:
-        acquired = _request_semaphore.acquire(timeout=REQUEST_QUEUE_TIMEOUT)
-    else:
-        acquired = _request_semaphore.acquire(blocking=False)
+    """Limit concurrent requests to protect the scraper service.
+
+    Uses SCRAPER_QUEUE_TIMEOUT to decide how long to wait for a slot.
+    Default 30s gives in-flight requests time to finish instead of
+    rejecting immediately while FlareSolverr is solving a challenge.
+    """
+    timeout = REQUEST_QUEUE_TIMEOUT if REQUEST_QUEUE_TIMEOUT > 0 else 30.0
+    acquired = _request_semaphore.acquire(timeout=timeout)
 
     if not acquired:
-        logger.warning("Rejecting %s request: scraper busy", scope)
+        logger.warning("Rejecting %s request: scraper busy (waited %.0fs)", scope, timeout)
         raise HTTPException(
             status_code=429,
             detail=f"Scraper busy, retry after {RETRY_AFTER_SECONDS}s",
