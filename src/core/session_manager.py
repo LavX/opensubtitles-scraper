@@ -255,7 +255,7 @@ class SessionManager:
 
         import requests as plain_requests
         try:
-            resp = plain_requests.head(url, timeout=5, allow_redirects=True)
+            resp = plain_requests.head(url, timeout=(5, 5), allow_redirects=True)
             return self._is_cloudflare_challenge(resp)
         except Exception:
             # If we can't even reach the site, let the normal flow handle it
@@ -277,7 +277,7 @@ class SessionManager:
                     "url": url,
                     "maxTimeout": self.flaresolverr_timeout * 1000,
                 },
-                timeout=self.flaresolverr_timeout + 10,
+                timeout=(10, self.flaresolverr_timeout + 10),
             )
             resp.raise_for_status()
             data = resp.json()
@@ -349,7 +349,7 @@ class SessionManager:
                 logger.info("Another thread already solved the challenge, reusing cookies")
                 session = self.get_session()
                 try:
-                    resp = session.request("GET", url, timeout=min(self.timeout, 15))
+                    resp = session.request("GET", url, timeout=(10, min(self.timeout, 15)))
                     if not self._is_cloudflare_challenge(resp):
                         resp.raise_for_status()
                         return resp
@@ -365,7 +365,7 @@ class SessionManager:
 
         if not should_solve:
             # Wait for the other thread to finish solving
-            self._flaresolverr_solve_done.wait(timeout=120)
+            self._flaresolverr_solve_done.wait(timeout=90)
             # Reuse the result that the solving thread stored
             logger.info("Reusing FlareSolverr result from another thread's solve")
             with self._flaresolverr_solve_lock:
@@ -377,7 +377,7 @@ class SessionManager:
                 return resp
             # Fallback: try a real request with the injected cookies
             session = self.get_session()
-            resp = session.request("GET", url, timeout=min(self.timeout, 15))
+            resp = session.request("GET", url, timeout=(10, min(self.timeout, 15)))
             resp.raise_for_status()
             return resp
 
@@ -414,9 +414,9 @@ class SessionManager:
 
             session = self.get_session()
 
-            # Use short timeout for initial attempt to fail fast on challenges
+            # Use (connect, read) tuple to prevent TCP-level hangs
             if "timeout" not in kwargs:
-                kwargs["timeout"] = min(self.timeout, 15)
+                kwargs["timeout"] = (10, min(self.timeout, 15))
 
             logger.debug(f"Making {method.upper()} request to: {url}")
 
