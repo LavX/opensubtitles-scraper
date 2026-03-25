@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from contextlib import contextmanager
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
@@ -51,17 +52,28 @@ RETRY_AFTER_SECONDS = max(
     int(os.environ.get("SCRAPER_RETRY_AFTER_SECONDS", "15")),
     1,
 )
+# Hard wall-clock limit for any single request holding the semaphore.
+# Prevents permanent deadlock when upstream calls hang.
+MAX_REQUEST_DURATION = max(
+    int(os.environ.get("SCRAPER_MAX_REQUEST_DURATION", "180")),
+    30,
+)
 
 _request_semaphore = threading.BoundedSemaphore(MAX_INFLIGHT_REQUESTS)
 
 
 @contextmanager
 def request_limit(scope: str):
-    """Limit concurrent requests to protect the scraper service.
+    """Limit concurrent requests and enforce a hard wall-clock deadline.
 
     Uses SCRAPER_QUEUE_TIMEOUT to decide how long to wait for a slot.
     Default 30s gives in-flight requests time to finish instead of
     rejecting immediately while FlareSolverr is solving a challenge.
+
+    MAX_REQUEST_DURATION is a hard ceiling on how long a single request
+    can hold the semaphore.  If exceeded, the semaphore is released and
+    a 504 is returned, preventing permanent deadlock from hung upstream
+    calls.
     """
     timeout = REQUEST_QUEUE_TIMEOUT if REQUEST_QUEUE_TIMEOUT > 0 else 30.0
     acquired = _request_semaphore.acquire(timeout=timeout)
@@ -74,10 +86,17 @@ def request_limit(scope: str):
             headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
         )
 
+    start = time.monotonic()
     try:
         yield
     finally:
+        elapsed = time.monotonic() - start
         _request_semaphore.release()
+        if elapsed > MAX_REQUEST_DURATION:
+            logger.error(
+                "Request %s exceeded wall-clock limit: %.1fs > %ds",
+                scope, elapsed, MAX_REQUEST_DURATION,
+            )
 
 
 _scraper_lock = threading.Lock()
