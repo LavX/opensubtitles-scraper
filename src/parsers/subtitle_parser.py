@@ -11,6 +11,15 @@ from ..utils.helpers import extract_subtitle_info, sanitize_filename
 
 logger = logging.getLogger(__name__)
 
+# ISO 639-1 language codes used on opensubtitles.org
+_VALID_LANG_CODES = frozenset({
+    'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko',
+    'ar', 'nl', 'pl', 'tr', 'he', 'vi', 'th', 'sv', 'da', 'fi',
+    'no', 'hr', 'bg', 'sr', 'sk', 'sl', 'uk', 'id', 'ms', 'hi',
+    'bn', 'fa', 'ta', 'te', 'ur', 'et', 'lv', 'lt', 'ka', 'mk',
+    'sq', 'bs', 'is', 'gl', 'eu', 'ca', 'hu', 'cs', 'ro', 'el',
+})
+
 
 class SubtitleInfo:
     """Represents a subtitle from OpenSubtitles"""
@@ -68,10 +77,6 @@ class SubtitleParser:
     
     def __init__(self, session_manager=None):
         self.base_url = "https://www.opensubtitles.org"
-        self._session_manager = session_manager
-    
-    def set_session_manager(self, session_manager):
-        """Set the session manager to use for requests"""
         self._session_manager = session_manager
     
     def parse_subtitle_page(self, html_content: str, movie_url: str) -> List[SubtitleInfo]:
@@ -247,9 +252,9 @@ class SubtitleParser:
             
             # Determine hearing impaired and forced flags from filename/title
             row_text = row.get_text().lower()
-            hearing_impaired = bool(re.search(r'\b(hi|hearing.impaired|sdh)\b', row_text))
+            hearing_impaired = bool(re.search(r'\b(hearing[\s._-]?impaired|sdh|h\.i\.)\b', row_text, re.I) or re.search(r'\bHI\b', row_text))
             forced = bool(re.search(r'\b(forced|foreign)\b', row_text))
-            
+
             return SubtitleInfo(
                 subtitle_id=subtitle_id,
                 language=language,
@@ -302,16 +307,16 @@ class SubtitleParser:
                 last_part = url_parts[-1]  # e.g., "avatar-en"
                 if '-' in last_part:
                     language = last_part.split('-')[-1]
-                    if len(language) == 2:  # Valid language code
+                    if len(language) == 2 and language in _VALID_LANG_CODES:
                         return language
-            
+
             # Fallback: extract from URL path
             lang_match = re.search(r'/([a-z]{2})/', url)
-            if lang_match:
+            if lang_match and lang_match.group(1) in _VALID_LANG_CODES:
                 return lang_match.group(1)
-            
+
             return None
-            
+
         except Exception:
             return None
     
@@ -466,9 +471,9 @@ class SubtitleParser:
             
             # Determine subtitle flags
             row_text = row.get_text().lower() if row else link_text.lower()
-            hearing_impaired = bool(re.search(r'\b(hi|hearing.impaired|sdh)\b', row_text))
+            hearing_impaired = bool(re.search(r'\b(hearing[\s._-]?impaired|sdh|h\.i\.)\b', row_text, re.I) or re.search(r'\bHI\b', row_text))
             forced = bool(re.search(r'\b(forced|foreign)\b', row_text))
-            
+
             return SubtitleInfo(
                 subtitle_id=subtitle_id,
                 language=language,

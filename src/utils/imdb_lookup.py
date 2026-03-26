@@ -2,9 +2,9 @@
 
 import logging
 import re
+import threading
 import time
 from typing import Optional, Dict
-from urllib.parse import urljoin
 
 from .exceptions import ScrapingError
 
@@ -21,6 +21,7 @@ class IMDBLookupService:
         self.base_url = "https://www.imdb.com"
         self.cache = {}  # Simple in-memory cache
         self.cache_ttl = 3600  # 1 hour cache TTL
+        self._cache_lock = threading.Lock()
         
     def lookup_title(self, imdb_id: str) -> Optional[str]:
         """
@@ -37,11 +38,12 @@ class IMDBLookupService:
             
         # Check cache first
         cache_key = imdb_id
-        if cache_key in self.cache:
-            cached_data = self.cache[cache_key]
-            if time.time() - cached_data['timestamp'] < self.cache_ttl:
-                logger.debug(f"Using cached title for {imdb_id}: {cached_data['title']}")
-                return cached_data['title']
+        with self._cache_lock:
+            if cache_key in self.cache:
+                cached_data = self.cache[cache_key]
+                if time.time() - cached_data['timestamp'] < self.cache_ttl:
+                    logger.debug(f"Using cached title for {imdb_id}: {cached_data['title']}")
+                    return cached_data['title']
         
         response = None
         try:
@@ -62,14 +64,15 @@ class IMDBLookupService:
             title = self._extract_title_from_html(html_content)
             
             if title:
-                # Evict oldest entries if cache is full
-                if len(self.cache) >= MAX_CACHE_SIZE:
-                    self.cache.clear()
-                # Cache the result
-                self.cache[cache_key] = {
-                    'title': title,
-                    'timestamp': time.time()
-                }
+                with self._cache_lock:
+                    # Evict oldest entries if cache is full
+                    if len(self.cache) >= MAX_CACHE_SIZE:
+                        self.cache.clear()
+                    # Cache the result
+                    self.cache[cache_key] = {
+                        'title': title,
+                        'timestamp': time.time()
+                    }
                 logger.info(f"Successfully resolved {imdb_id} to: {title}")
                 return title
             else:
@@ -138,19 +141,21 @@ class IMDBLookupService:
     
     def clear_cache(self):
         """Clear the title cache"""
-        self.cache.clear()
+        with self._cache_lock:
+            self.cache.clear()
         logger.info("IMDB title cache cleared")
     
     def get_cache_stats(self) -> Dict[str, int]:
         """Get cache statistics"""
-        current_time = time.time()
-        valid_entries = sum(
-            1 for entry in self.cache.values() 
-            if current_time - entry['timestamp'] < self.cache_ttl
-        )
-        
-        return {
-            'total_entries': len(self.cache),
-            'valid_entries': valid_entries,
-            'expired_entries': len(self.cache) - valid_entries
-        }
+        with self._cache_lock:
+            current_time = time.time()
+            valid_entries = sum(
+                1 for entry in self.cache.values()
+                if current_time - entry['timestamp'] < self.cache_ttl
+            )
+
+            return {
+                'total_entries': len(self.cache),
+                'valid_entries': valid_entries,
+                'expired_entries': len(self.cache) - valid_entries
+            }

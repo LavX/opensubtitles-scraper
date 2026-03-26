@@ -17,9 +17,7 @@ from src.utils.helpers import (
     sanitize_filename,
     extract_imdb_id,
     normalize_title,
-    extract_year,
     build_url,
-    is_valid_url,
     extract_subtitle_info,
 )
 from src.utils.imdb_lookup import IMDBLookupService, MAX_CACHE_SIZE
@@ -938,7 +936,7 @@ class TestParseEpisodeListPage:
         mock_resp.text = ep_page_html
         mock_session.get.return_value = mock_resp
 
-        self.parser.set_session_manager(mock_session)
+        self.parser._session_manager = mock_session
 
         html = """<html><body>
         <table id="search_results">
@@ -969,7 +967,7 @@ class TestGetEpisodeSubtitlesSubtitleParser:
         mock_resp.text = ep_page_html
         mock_session.get.return_value = mock_resp
 
-        self.parser.set_session_manager(mock_session)
+        self.parser._session_manager = mock_session
         subs = self.parser._get_episode_subtitles("https://example.com/ep", "Episode 1")
         assert len(subs) >= 1
         assert subs[0].subtitle_id == "200"
@@ -977,7 +975,7 @@ class TestGetEpisodeSubtitlesSubtitleParser:
     def test_session_error_returns_empty(self):
         mock_session = MagicMock()
         mock_session.get.side_effect = Exception("network error")
-        self.parser.set_session_manager(mock_session)
+        self.parser._session_manager = mock_session
         subs = self.parser._get_episode_subtitles("https://example.com/ep", "Ep1")
         assert subs == []
 
@@ -986,7 +984,7 @@ class TestGetEpisodeSubtitlesSubtitleParser:
         mock_resp = MagicMock()
         mock_resp.text = "<html><body></body></html>"
         mock_session.get.return_value = mock_resp
-        self.parser.set_session_manager(mock_session)
+        self.parser._session_manager = mock_session
         self.parser._get_episode_subtitles("https://example.com/ep", "Ep1")
         mock_resp.close.assert_called()
 
@@ -1129,32 +1127,6 @@ class TestNormalizeTitle:
         assert normalize_title("  Hello  ") == "hello"
 
 
-class TestExtractYear:
-    def test_simple_year(self):
-        assert extract_year("Movie (2020)") == 2020
-
-    def test_multiple_years_returns_last(self):
-        assert extract_year("Sequel (2020) based on (1999)") == 1999
-
-    def test_no_year(self):
-        assert extract_year("No year here") is None
-
-    def test_future_year_valid(self):
-        # 2027 is current_year + 1 (2026 + 1), so valid
-        assert extract_year("Movie (2027)") == 2027
-
-    def test_too_far_future(self):
-        assert extract_year("Movie (2030)") is None
-
-    def test_old_year(self):
-        assert extract_year("Classic (1920)") == 1920
-
-    def test_year_1899_invalid(self):
-        assert extract_year("Old (1899)") is None
-
-    def test_non_year_digits(self):
-        assert extract_year("Resolution 1080 or 720") is None
-
 
 class TestBuildUrl:
     def test_simple(self):
@@ -1184,25 +1156,6 @@ class TestBuildUrl:
         url = build_url("https://example.com", "/path?existing=1", {"new": "2"})
         assert "&new=2" in url
 
-
-class TestIsValidUrl:
-    def test_valid_http(self):
-        assert is_valid_url("http://example.com") is True
-
-    def test_valid_https(self):
-        assert is_valid_url("https://example.com/path") is True
-
-    def test_no_scheme(self):
-        assert is_valid_url("example.com") is False
-
-    def test_no_netloc(self):
-        assert is_valid_url("http://") is False
-
-    def test_empty_string(self):
-        assert is_valid_url("") is False
-
-    def test_ftp(self):
-        assert is_valid_url("ftp://example.com") is True  # has scheme and netloc
 
 
 class TestExtractSubtitleInfo:

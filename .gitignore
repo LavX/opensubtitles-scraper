@@ -26,6 +26,9 @@ VERSION
 
 /.roo
 
+# Coverage
+.coverage
+
 # Environment files
 .env
 .env.*

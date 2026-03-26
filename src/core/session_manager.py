@@ -340,25 +340,31 @@ class SessionManager:
     def _fallback_to_flaresolverr(self, url: str):
         """Solve a Cloudflare challenge via FlareSolverr and return the response."""
         should_solve = False
+        cookies_exist = False
         with self._flaresolverr_solve_lock:
             if self._flaresolverr_solving:
                 # Another thread is already solving — we'll wait outside the lock
                 pass
             elif self._flaresolverr_cookies:
                 # Cookies already available from a previous solve
-                logger.info("Another thread already solved the challenge, reusing cookies")
-                session = self.get_session()
-                try:
-                    resp = session.request("GET", url, timeout=(10, min(self.timeout, 15)))
-                    if not self._is_cloudflare_challenge(resp):
-                        resp.raise_for_status()
-                        return resp
-                except Exception:
-                    pass  # Fall through to solve ourselves
+                cookies_exist = True
+            else:
                 should_solve = True
                 self._flaresolverr_solving = True
                 self._flaresolverr_solve_done.clear()
-            else:
+
+        # Try reusing existing cookies outside the lock to avoid blocking
+        if cookies_exist:
+            logger.info("Another thread already solved the challenge, reusing cookies")
+            session = self.get_session()
+            try:
+                resp = session.request("GET", url, timeout=(10, min(self.timeout, 15)))
+                if not self._is_cloudflare_challenge(resp):
+                    resp.raise_for_status()
+                    return resp
+            except Exception:
+                pass  # Cookies are stale, need to re-solve
+            with self._flaresolverr_solve_lock:
                 should_solve = True
                 self._flaresolverr_solving = True
                 self._flaresolverr_solve_done.clear()

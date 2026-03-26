@@ -1,20 +1,19 @@
 """FastAPI routes for OpenSubtitles scraper service"""
 
+import base64
 import logging
 import os
-import re
+import re as _re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from contextlib import contextmanager
-from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 
 from .models import (
     SearchRequest, SearchResponse, SearchResult,
     SubtitleRequest, SubtitleResponse, SubtitleInfo,
     DownloadRequest, DownloadResponse,
-    HealthResponse, ErrorResponse
+    HealthResponse,
 )
 from ..core.scraper import OpenSubtitlesScraper
 from ..utils.exceptions import SearchError, ScrapingError, DownloadError, CloudflareError, ServiceUnavailableError
@@ -34,11 +33,19 @@ _LANG_2_TO_3 = {
     'bs': 'bos', 'is': 'ice', 'gl': 'glg', 'eu': 'baq', 'ca': 'cat',
 }
 
+_LANG_CODE_RE = _re.compile(r'^[a-z]{2,3}$')
+
+
+def _validate_lang_code(code: str) -> bool:
+    return bool(_LANG_CODE_RE.match(code))
+
+
 logger = logging.getLogger(__name__)
 
 # Global scraper instance
 _scraper_instance = None
 _start_time = time.time()
+_last_error_time = 0.0
 
 MAX_INFLIGHT_REQUESTS = max(
     int(os.environ.get("SCRAPER_MAX_INFLIGHT_REQUESTS", "2")),
@@ -189,7 +196,7 @@ def search_movies(request: SearchRequest, scraper: OpenSubtitlesScraper = Depend
         raise
     except SearchError as e:
         logger.error(f"Movie search failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e))
     except CloudflareError as e:
         logger.error(f"Cloudflare block: {e}")
         raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
@@ -197,7 +204,9 @@ def search_movies(request: SearchRequest, scraper: OpenSubtitlesScraper = Depend
         logger.error(f"Service unavailable: {e}")
         raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
-        logger.error(f"Unexpected error in movie search: {e}")
+        global _last_error_time
+        _last_error_time = time.time()
+        logger.exception(f"Unexpected error in movie search: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -236,7 +245,7 @@ def search_tv_shows(request: SearchRequest, scraper: OpenSubtitlesScraper = Depe
         raise
     except SearchError as e:
         logger.error(f"TV show search failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e))
     except CloudflareError as e:
         logger.error(f"Cloudflare block: {e}")
         raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
@@ -244,7 +253,9 @@ def search_tv_shows(request: SearchRequest, scraper: OpenSubtitlesScraper = Depe
         logger.error(f"Service unavailable: {e}")
         raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
-        logger.error(f"Unexpected error in TV show search: {e}")
+        global _last_error_time
+        _last_error_time = time.time()
+        logger.exception(f"Unexpected error in TV show search: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -288,7 +299,7 @@ def get_subtitles(request: SubtitleRequest, scraper: OpenSubtitlesScraper = Depe
         raise
     except ScrapingError as e:
         logger.error(f"Subtitle listing failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e))
     except CloudflareError as e:
         logger.error(f"Cloudflare block: {e}")
         raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
@@ -296,7 +307,9 @@ def get_subtitles(request: SubtitleRequest, scraper: OpenSubtitlesScraper = Depe
         logger.error(f"Service unavailable: {e}")
         raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
-        logger.error(f"Unexpected error in subtitle listing: {e}")
+        global _last_error_time
+        _last_error_time = time.time()
+        logger.exception(f"Unexpected error in subtitle listing: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -319,10 +332,11 @@ def download_subtitle(request: DownloadRequest, scraper: OpenSubtitlesScraper = 
             )
             
             subtitle_data = scraper.download_subtitle(subtitle_info)
-            
+            encoded_content = base64.b64encode(subtitle_data['content'].encode('utf-8')).decode('utf-8')
+
             return DownloadResponse(
                 filename=subtitle_data['filename'],
-                content=subtitle_data['content'],
+                content=encoded_content,
                 size=subtitle_data['size'],
                 encoding=subtitle_data.get('encoding', 'utf-8')
             )
@@ -331,7 +345,7 @@ def download_subtitle(request: DownloadRequest, scraper: OpenSubtitlesScraper = 
         raise
     except DownloadError as e:
         logger.error(f"Subtitle download failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e))
     except CloudflareError as e:
         logger.error(f"Cloudflare block: {e}")
         raise HTTPException(status_code=503, detail="Cloudflare protection active - retry later", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
@@ -339,7 +353,9 @@ def download_subtitle(request: DownloadRequest, scraper: OpenSubtitlesScraper = 
         logger.error(f"Service unavailable: {e}")
         raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
-        logger.error(f"Unexpected error in subtitle download: {e}")
+        global _last_error_time
+        _last_error_time = time.time()
+        logger.exception(f"Unexpected error in subtitle download: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -384,7 +400,10 @@ def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scr
                         series_title = search_results[0].title if season else None
                         movie_year = getattr(search_results[0], 'year', None)
                         movie_url = search_results[0].url
-                        languages = criterion.get('sublanguageid', '').split(',')
+                        languages = [
+                            lang for lang in criterion.get('sublanguageid', '').split(',')
+                            if lang and _validate_lang_code(lang)
+                        ]
                         # Pass season and episode info for TV shows
                         subtitles = scraper.get_subtitles(
                             movie_url=movie_url,
@@ -415,13 +434,13 @@ def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scr
                     movie_name = getattr(sub, 'movie_name', '')
                     if season and episode and not movie_name and sub.release_name:
                         # Extract series name from release_name format: "Series Name" Episode Title
-                        series_match = re.match(r'^"([^"]+)"', sub.release_name)
+                        series_match = _re.match(r'^"([^"]+)"', sub.release_name)
                         if series_match:
                             # Use the full release_name as movie_name, but clean it up for Bazarr
                             movie_name = sub.release_name
                             # Clean up newlines, tabs, and extra spaces for proper regex matching in Bazarr
                             movie_name = movie_name.replace('\n', ' ').replace('\t', ' ')
-                            movie_name = re.sub(r'\s+', ' ', movie_name).strip()
+                            movie_name = _re.sub(r'\s+', ' ', movie_name).strip()
                             logger.debug(f"Fixed empty MovieName for subtitle {sub.subtitle_id}: '{movie_name}'")
                         else:
                             # Fallback: try to construct from available data
@@ -472,7 +491,9 @@ def bazarr_search(request: dict, scraper: OpenSubtitlesScraper = Depends(get_scr
         logger.error(f"Bazarr request - service unavailable: {e}")
         raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
-        logger.error(f"Bazarr search failed: {e}")
+        global _last_error_time
+        _last_error_time = time.time()
+        logger.exception(f"Bazarr search failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -489,10 +510,7 @@ def bazarr_download(request: dict, scraper: OpenSubtitlesScraper = Depends(get_s
             # Extract subtitle ID from request
             subtitle_id = request.get('subtitle_id')
             if not subtitle_id:
-                return {
-                    'status': '400 Bad Request',
-                    'data': []
-                }
+                raise HTTPException(status_code=400, detail="Missing subtitle_id")
             
             # Create a minimal SubtitleInfo object for download
             from ..parsers.subtitle_parser import SubtitleInfo
@@ -514,7 +532,6 @@ def bazarr_download(request: dict, scraper: OpenSubtitlesScraper = Depends(get_s
             subtitle_data = scraper.download_subtitle(subtitle_info)
             
             # Return in Bazarr-expected format (base64 encoded content)
-            import base64
             encoded_content = base64.b64encode(subtitle_data['content'].encode('utf-8')).decode('utf-8')
             
             return {
@@ -531,7 +548,9 @@ def bazarr_download(request: dict, scraper: OpenSubtitlesScraper = Depends(get_s
         logger.error(f"Bazarr request - service unavailable: {e}")
         raise HTTPException(status_code=503, detail="OpenSubtitles.org temporarily unavailable", headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
     except Exception as e:
-        logger.error(f"Bazarr download failed: {e}")
+        global _last_error_time
+        _last_error_time = time.time()
+        logger.exception(f"Bazarr download failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
