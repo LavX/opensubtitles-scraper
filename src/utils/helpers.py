@@ -3,7 +3,6 @@
 import re
 import logging
 from typing import Optional, Dict, Any
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ def normalize_title(title: str) -> str:
 
 
 def extract_year(text: str) -> Optional[int]:
-    """Extract year from text"""
+    """Extract a plausible release year from text (e.g. title, filename)."""
     try:
         matches = re.findall(r'\b((?:19|20)\d{2})\b', text)
         if matches:
@@ -70,15 +69,6 @@ def build_url(base_url: str, path: str, params: Optional[Dict[str, Any]] = None)
             url = f"{url}{separator}{param_str}"
     
     return url
-
-
-def is_valid_url(url: str) -> bool:
-    """Check if URL is valid"""
-    try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except Exception:
-        return False
 
 
 def extract_subtitle_info(filename: str) -> Dict[str, Any]:
@@ -231,7 +221,7 @@ def extract_subtitle_info(filename: str) -> Dict[str, Any]:
             break
     
     # Check for hearing impaired
-    if re.search(r'\b(hi|hearing.impaired|sdh)\b', filename_lower):
+    if re.search(r'\b(hearing[\s._-]?impaired|sdh|h\.i\.)\b', filename_lower) or re.search(r'\bHI\b', filename):
         info['hearing_impaired'] = True
     
     # Check for forced

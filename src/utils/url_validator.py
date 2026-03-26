@@ -17,3 +17,9 @@ def validate_target_url(url: str, extra_allowed_hosts: frozenset = frozenset()) 
     all_allowed = ALLOWED_HOSTS | extra_allowed_hosts
     if parsed.hostname not in all_allowed:
         raise ValueError(f"URL host not allowed: {parsed.hostname}")
+
+
+def validate_response_url(response, extra_allowed_hosts=frozenset()):
+    """Validate that a response URL (after redirects) is still in the allowlist."""
+    if hasattr(response, 'url') and response.url:
+        validate_target_url(response.url, extra_allowed_hosts)

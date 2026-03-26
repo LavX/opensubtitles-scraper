@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import router, cleanup_scraper
+from src.api.routes import router, cleanup_scraper, health_check
 from src import __version__, __description__
 
 # Configure logging
@@ -85,13 +85,8 @@ def root():
 
 @app.get("/health")
 def health():
-    """Simple health check endpoint (root level for easy access)"""
-    scraper = get_scraper()
-    return {
-        "status": "healthy",
-        "version": __version__,
-        "scraper_status": "healthy" if scraper else "unavailable"
-    }
+    """Health check endpoint (delegates to /api/v1/health)"""
+    return health_check()
 
 
 if __name__ == "__main__":

@@ -31,16 +31,6 @@ class CloudflareError(OpenSubtitlesScraperError):
     pass
 
 
-class RateLimitError(OpenSubtitlesScraperError):
-    """Raised when rate limit is exceeded"""
-    pass
-
-
-class AuthenticationError(OpenSubtitlesScraperError):
-    """Raised when authentication fails"""
-    pass
-
-
 class ServiceUnavailableError(OpenSubtitlesScraperError):
     """Raised when OpenSubtitles.org is unavailable"""
     pass

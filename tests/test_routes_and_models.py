@@ -313,7 +313,7 @@ class TestSearchMovies:
         from src.utils.exceptions import SearchError
         mock_scraper.search_movies.side_effect = SearchError("no results")
         resp = client.post("/api/v1/search/movies", json={"query": "xyz"})
-        assert resp.status_code == 400
+        assert resp.status_code == 502
 
     def test_cloudflare_error(self, client, mock_scraper):
         from src.utils.exceptions import CloudflareError
@@ -346,7 +346,7 @@ class TestSearchTv:
         from src.utils.exceptions import SearchError
         mock_scraper.search_tv_shows.side_effect = SearchError("fail")
         resp = client.post("/api/v1/search/tv", json={"query": "xyz"})
-        assert resp.status_code == 400
+        assert resp.status_code == 502
 
     def test_cloudflare_error(self, client, mock_scraper):
         from src.utils.exceptions import CloudflareError
@@ -399,7 +399,7 @@ class TestSubtitles:
         resp = client.post("/api/v1/subtitles", json={
             "movie_url": "https://www.opensubtitles.org/en/foo"
         })
-        assert resp.status_code == 400
+        assert resp.status_code == 502
 
     def test_cloudflare_error(self, client, mock_scraper):
         from src.utils.exceptions import CloudflareError
@@ -434,7 +434,8 @@ class TestDownloadSubtitle:
         assert resp.status_code == 200
         data = resp.json()
         assert data["filename"] == "test.srt"
-        assert data["content"] == "subtitle content here"
+        import base64
+        assert data["content"] == base64.b64encode(b"subtitle content here").decode("utf-8")
         assert data["size"] == 21
 
     def test_download_error(self, client, mock_scraper):
@@ -444,7 +445,7 @@ class TestDownloadSubtitle:
             "subtitle_id": "123",
             "download_url": "https://www.opensubtitles.org/en/subtitles/123"
         })
-        assert resp.status_code == 400
+        assert resp.status_code == 502
 
     def test_cloudflare_error(self, client, mock_scraper):
         from src.utils.exceptions import CloudflareError
@@ -671,10 +672,9 @@ class TestBazarrDownload:
 
     def test_missing_subtitle_id(self, client, mock_scraper):
         resp = client.post("/download", json={})
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         data = resp.json()
-        assert data["status"] == "400 Bad Request"
-        assert data["data"] == []
+        assert "subtitle_id" in data["detail"].lower()
 
     def test_cloudflare_error(self, client, mock_scraper):
         from src.utils.exceptions import CloudflareError

@@ -173,17 +173,30 @@ class DownloadParser:
                     if not re.search(r'\.(srt|sub|ass|vtt|ssa)$', filename, re.I):
                         continue
 
-                    # Check file size before extraction to prevent zip bombs
-                    if file_info.file_size > MAX_SUBTITLE_SIZE:
-                        logger.warning(
-                            "Skipping %s: file size %d bytes exceeds %d byte limit",
-                            filename, file_info.file_size, MAX_SUBTITLE_SIZE,
-                        )
-                        continue
-
-                    # Read file content
+                    # Read file content in chunks to prevent zip bombs
+                    # (don't trust the header-reported file_size)
                     try:
-                        file_content = zip_file.read(filename)
+                        file_content = None
+                        with zip_file.open(filename) as f:
+                            chunks = []
+                            total = 0
+                            oversized = False
+                            while True:
+                                chunk = f.read(8192)
+                                if not chunk:
+                                    break
+                                total += len(chunk)
+                                if total > MAX_SUBTITLE_SIZE:
+                                    logger.warning(
+                                        "Skipping oversized file %s: >%d bytes",
+                                        filename, MAX_SUBTITLE_SIZE,
+                                    )
+                                    oversized = True
+                                    break
+                                chunks.append(chunk)
+                            if oversized:
+                                continue
+                            file_content = b"".join(chunks)
                         
                         # Try to decode with common encodings
                         content_text = self._decode_subtitle_content(file_content)

@@ -340,10 +340,21 @@ class OpenSubtitlesScraper:
             logger.info(f"Getting subtitles from: {movie_url}")
             
             # Modify URL to search for specific language to avoid pagination issues
+            # OpenSubtitles uses 3-letter codes in URLs (eng, hun, spa, etc.)
+            _LANG_2_TO_3 = {
+                'en': 'eng', 'es': 'spa', 'fr': 'fre', 'de': 'ger', 'it': 'ita',
+                'pt': 'por', 'ru': 'rus', 'zh': 'chi', 'ja': 'jpn', 'ko': 'kor',
+                'ar': 'ara', 'nl': 'dut', 'pl': 'pol', 'hu': 'hun', 'cs': 'cze',
+                'ro': 'rum', 'el': 'gre', 'tr': 'tur', 'he': 'heb', 'vi': 'vie',
+                'th': 'tha', 'sv': 'swe', 'da': 'dan', 'fi': 'fin', 'no': 'nor',
+                'hr': 'hrv', 'bg': 'bul', 'sr': 'scc', 'sk': 'slo', 'sl': 'slv',
+                'uk': 'ukr', 'id': 'ind', 'ms': 'may', 'hi': 'hin', 'et': 'est',
+            }
             if languages:
                 lang_code = languages[0].lower()
-                movie_url = movie_url.replace('sublanguageid-all', f'sublanguageid-{lang_code}')
-                logger.debug(f"Modified movie URL for language {lang_code}: {movie_url}")
+                lang_code_3 = _LANG_2_TO_3.get(lang_code, lang_code)
+                movie_url = movie_url.replace('sublanguageid-all', f'sublanguageid-{lang_code_3}')
+                logger.debug(f"Modified movie URL for language {lang_code} -> {lang_code_3}: {movie_url}")
             
             # Make request to movie/show page
             response = self.session_manager.get(movie_url)
