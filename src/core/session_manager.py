@@ -298,6 +298,12 @@ class SessionManager:
             self._flaresolverr_cookies = []
             self._flaresolverr_user_agent = None
 
+        # If we already have Anubis cookies in the session, skip pre-flight
+        if hasattr(self, 'session') and self.session:
+            anubis_cookies = [c for c in self.session.cookies if "anubis" in c.name.lower()]
+            if anubis_cookies:
+                return False
+
         import requests as plain_requests
         try:
             resp = plain_requests.head(url, timeout=(5, 5), allow_redirects=True)
