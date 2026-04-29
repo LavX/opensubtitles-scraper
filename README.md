@@ -243,6 +243,7 @@ LOG_LEVEL=DEBUG python main.py
 ### Contributors
 
 - **[@salwinh](https://github.com/salwinh)** — language-specific URL filtering, TV series detection, subtitle metadata extraction
+- **[@Zmegolaz](https://github.com/Zmegolaz)** — episode link matching fix for non-`all` language pages
 
 ---
 
