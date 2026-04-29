@@ -38,6 +38,8 @@ class SubtitleRequest(BaseModel):
     """Request model for subtitle listings"""
     movie_url: str = Field(..., description="Movie/show URL from search results")
     languages: Optional[List[str]] = Field(None, description="Language codes to filter")
+    season: Optional[int] = Field(None, description="Season number for TV episodes")
+    episode: Optional[int] = Field(None, description="Episode number for TV episodes")
 
     @field_validator("movie_url")
     @classmethod
