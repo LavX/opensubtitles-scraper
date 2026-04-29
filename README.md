@@ -122,6 +122,16 @@ curl -fsSL https://lavx.github.io/bazarr/install.sh | bash
 
 The script ([source](https://github.com/LavX/bazarr/blob/gh-pages/install.sh)) generates a `docker-compose.yml`, a sane `.env`, and a starter `config/config.yaml`.
 
+### Full media stack ([arrstack](https://lavx.github.io/arrstack/))
+
+For an end-to-end homelab (qBittorrent, Prowlarr, Sonarr, Radarr, Bazarr+, Jellyfin, Jellyseerr, FlareSolverr, Caddy, Trailarr, Recyclarr, optional Gluetun VPN — twelve services), use [arrstack](https://lavx.github.io/arrstack/). One command, ~90 seconds, TRaSH-Guides-aligned defaults, services pre-wired together:
+
+```bash
+curl -fsSL https://lavx.github.io/arrstack/install.sh | bash
+```
+
+Bazarr+ is included and already knows how to use this scraper.
+
 ### From source / development
 
 ```bash
@@ -320,8 +330,9 @@ docker compose run -e LOG_LEVEL=DEBUG opensubtitles-scraper
 Maintained by **[LavX](https://lavx.hu)**.
 
 Other projects:
-- [AI Subtitle Translator](https://github.com/LavX/ai-subtitle-translator) — LLM-powered subtitle translation via OpenRouter
+- [arrstack](https://lavx.github.io/arrstack/) — one-command installer for a 12-service self-hosted media stack (Sonarr, Radarr, Jellyfin, Bazarr+, this scraper, and more)
 - [Bazarr (LavX Fork)](https://github.com/LavX/bazarr) — automated subtitle management with .org scraper and AI translation
+- [AI Subtitle Translator](https://github.com/LavX/ai-subtitle-translator) — LLM-powered subtitle translation via OpenRouter
 - [LMS Tools](https://tools.lavx.hu) — 140+ free, privacy-focused dev tools
 
 ---
