@@ -89,7 +89,12 @@ class SubtitleParser:
             if self._is_episode_list_page(soup):
                 logger.info("Detected TV series episode list page, extracting episode subtitles")
                 return self._parse_episode_list_page(soup, movie_url)
-            
+
+            # Check if this is a single subtitle detail page (redirect when only one sub exists)
+            if self._is_single_subtitle_page(soup):
+                logger.info("Detected single subtitle detail page, extracting subtitle directly")
+                return self._parse_single_subtitle_page(soup, movie_url)
+
             # Otherwise, parse as regular subtitle page
             # Look for subtitle table rows
             subtitle_rows = soup.find_all('tr', class_=re.compile(r'(subtitle|sub)', re.I))
@@ -347,6 +352,84 @@ class SubtitleParser:
         except Exception:
             return False
     
+    def _is_single_subtitle_page(self, soup: BeautifulSoup) -> bool:
+        """Return True when the page is a single subtitle detail page, not a listing.
+
+        OpenSubtitles redirects to the detail page when a search yields exactly
+        one result. The detail page has a classic /en/subtitleserve/sub/{id}
+        download link but none of the td[id^=main] cells that listing pages use.
+        """
+        try:
+            if soup.find('td', id=re.compile(r'^main\d+')):
+                return False
+            return bool(soup.find('a', href=re.compile(r'/en/subtitleserve/sub/\d+')))
+        except Exception:
+            return False
+
+    def _parse_single_subtitle_page(self, soup: BeautifulSoup, page_url: str) -> List[SubtitleInfo]:
+        """Extract a SubtitleInfo from a single subtitle detail page."""
+        try:
+            re_subtitleserver = re.compile(r'/en/subtitleserve/sub/(\d+)')
+            serve_link = soup.find('a', href=re_subtitleserver)
+            if not serve_link:
+                logger.warning("No subtitleserve download link found on single subtitle page")
+                return []
+
+            subtitle_id_match = re_subtitleserver.search(serve_link['href'])
+            if not subtitle_id_match:
+                return []
+            subtitle_id = subtitle_id_match.group(1)
+
+            # Prefer the canonical URL for language extraction because the caller's
+            # page_url may still be the original search URL (before the redirect).
+            canonical_tag = soup.find('link', rel='canonical')
+            canonical_url = (canonical_tag.get('href', '') if canonical_tag else '') or page_url
+
+            language = self._extract_language_from_url(canonical_url)
+            if not language:
+                language = 'en'
+
+            # Extract release / title from the page heading
+            release_name = ''
+            h2 = soup.find('h2')
+            if h2:
+                release_name = h2.get_text(strip=True)
+            if not release_name:
+                title_tag = soup.find('title')
+                if title_tag:
+                    release_name = title_tag.get_text(strip=True)
+
+            subtitle_page_url = canonical_url or f"{self.base_url}/en/subtitles/{subtitle_id}"
+            filename = f"{sanitize_filename(release_name) if release_name else subtitle_id}.{language}.srt"
+
+            uploader = 'unknown'
+            uploader_link = soup.find('a', href=re.compile(r'/en/profile/'))
+            if uploader_link:
+                uploader_text = uploader_link.get_text(strip=True)
+                if uploader_text:
+                    uploader = uploader_text
+
+            logger.info(
+                f"Parsed single subtitle: id={subtitle_id} lang={language} release='{release_name}'"
+            )
+            return [SubtitleInfo(
+                subtitle_id=subtitle_id,
+                language=language,
+                filename=filename,
+                release_name=release_name,
+                uploader=uploader,
+                download_count=0,
+                rating=0.0,
+                hearing_impaired=False,
+                forced=False,
+                fps=None,
+                download_url=subtitle_page_url,
+                upload_date=None,
+            )]
+        except Exception as e:
+            logger.error(f"Failed to parse single subtitle page: {e}")
+            return []
+
     def _parse_episode_list_page(self, soup: BeautifulSoup, series_url: str) -> List[SubtitleInfo]:
         """Parse TV series episode list page and get subtitles from episodes"""
         try:
