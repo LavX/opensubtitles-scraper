@@ -353,7 +353,7 @@ class SubtitleParser:
             subtitles = []
             
             # Find all episode links
-            episode_links = soup.find_all('a', href=re.compile(r'/en/search/sublanguageid-all/imdbid-\d+'))
+            episode_links = soup.find_all('a', href=re.compile(r'/en/search/sublanguageid-\w+/imdbid-\d+'))
             
             logger.info(f"Found {len(episode_links)} episodes to process")
             
