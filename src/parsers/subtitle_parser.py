@@ -389,11 +389,21 @@ class SubtitleParser:
             if not language:
                 language = 'en'
 
-            # Extract release / title from the page heading
+            # Extract release / title from the page heading.
+            # OpenSubtitles h2 uses '"Series Name" Episode Title ...' for episodes.
+            # Strip the quoted series prefix so release_name holds only the episode/
+            # release portion.  Without this, Bazarr's _parse_v1_subtitles() would
+            # prepend '"{series_title}" ' a second time, producing a double-wrapped
+            # movie_name.  The series_re regex then greedily captures a wrong
+            # series_name, causing the subtitle to be rejected by Bazarr's
+            # series/episode match check.
+            _TITLE_PREFIX_RE = re.compile(r'^"[^"]+"\s+(?P<rest>.+)$')
             release_name = ''
             h2 = soup.find('h2')
             if h2:
-                release_name = h2.get_text(strip=True)
+                h2_text = h2.get_text(strip=True)
+                m = _TITLE_PREFIX_RE.match(h2_text)
+                release_name = m.group('rest') if m else h2_text
             if not release_name:
                 title_tag = soup.find('title')
                 if title_tag:
