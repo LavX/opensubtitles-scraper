@@ -268,7 +268,9 @@ def get_subtitles(request: SubtitleRequest, scraper: OpenSubtitlesScraper = Depe
             
             subtitles = scraper.get_subtitles(
                 movie_url=request.movie_url,
-                languages=request.languages
+                languages=request.languages,
+                season=request.season,
+                episode=request.episode,
             )
             
             subtitle_infos = [

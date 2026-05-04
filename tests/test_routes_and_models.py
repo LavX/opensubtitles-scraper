@@ -379,12 +379,16 @@ class TestSubtitles:
     def test_with_languages(self, client, mock_scraper):
         resp = client.post("/api/v1/subtitles", json={
             "movie_url": "https://www.opensubtitles.org/en/foo",
-            "languages": ["eng", "fre"]
+            "languages": ["eng", "fre"],
+            "season": 1,
+            "episode": 1,
         })
         assert resp.status_code == 200
         mock_scraper.get_subtitles.assert_called_once_with(
             movie_url="https://www.opensubtitles.org/en/foo",
-            languages=["eng", "fre"]
+            languages=["eng", "fre"],
+            season=1,
+            episode=1,
         )
 
     def test_bad_url_host(self, client):
