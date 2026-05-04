@@ -335,26 +335,45 @@ class OpenSubtitlesScraper:
     def get_subtitles(self, movie_url: str, languages: Optional[List[str]] = None,
                      season: Optional[int] = None, episode: Optional[int] = None) -> List[SubtitleInfo]:
         """Get subtitle listings for a movie/show"""
+        logger.info(f"Getting subtitles from: {movie_url}")
+
+        # OpenSubtitles uses 3-letter codes in URLs (eng, hun, spa, etc.)
+        _LANG_2_TO_3 = {
+            'en': 'eng', 'es': 'spa', 'fr': 'fre', 'de': 'ger', 'it': 'ita',
+            'pt': 'por', 'ru': 'rus', 'zh': 'chi', 'ja': 'jpn', 'ko': 'kor',
+            'ar': 'ara', 'nl': 'dut', 'pl': 'pol', 'hu': 'hun', 'cs': 'cze',
+            'ro': 'rum', 'el': 'gre', 'tr': 'tur', 'he': 'heb', 'vi': 'vie',
+            'th': 'tha', 'sv': 'swe', 'da': 'dan', 'fi': 'fin', 'no': 'nor',
+            'hr': 'hrv', 'bg': 'bul', 'sr': 'scc', 'sk': 'slo', 'sl': 'slv',
+            'uk': 'ukr', 'id': 'ind', 'ms': 'may', 'hi': 'hin', 'et': 'est',
+        }
+
+        if languages:
+            # Fetch one page per language and merge
+            all_subtitles: List[SubtitleInfo] = []
+            seen_ids: set = set()
+            for lang in languages:
+                lang_code = lang.lower()
+                lang_code_3 = _LANG_2_TO_3.get(lang_code, lang_code)
+                lang_url = movie_url.replace('sublanguageid-all', f'sublanguageid-{lang_code_3}')
+                logger.debug(f"Fetching subtitles for language {lang_code} -> {lang_code_3}: {lang_url}")
+                lang_subtitles = self._fetch_subtitles_for_url(lang_url, season, episode, [lang])
+                for sub in lang_subtitles:
+                    if sub.subtitle_id not in seen_ids:
+                        seen_ids.add(sub.subtitle_id)
+                        all_subtitles.append(sub)
+            logger.info(f"Found {len(all_subtitles)} subtitles across {len(languages)} language(s)")
+            return all_subtitles
+        else:
+            subtitles = self._fetch_subtitles_for_url(movie_url, season, episode, None)
+            logger.info(f"Found {len(subtitles)} subtitles")
+            return subtitles
+
+    def _fetch_subtitles_for_url(self, movie_url: str, season: Optional[int], episode: Optional[int],
+                                  languages: Optional[List[str]]) -> List[SubtitleInfo]:
+        """Fetch and parse subtitles from a single URL, optionally filtering by language."""
         response = None
         try:
-            logger.info(f"Getting subtitles from: {movie_url}")
-            
-            # Modify URL to search for specific language to avoid pagination issues
-            # OpenSubtitles uses 3-letter codes in URLs (eng, hun, spa, etc.)
-            _LANG_2_TO_3 = {
-                'en': 'eng', 'es': 'spa', 'fr': 'fre', 'de': 'ger', 'it': 'ita',
-                'pt': 'por', 'ru': 'rus', 'zh': 'chi', 'ja': 'jpn', 'ko': 'kor',
-                'ar': 'ara', 'nl': 'dut', 'pl': 'pol', 'hu': 'hun', 'cs': 'cze',
-                'ro': 'rum', 'el': 'gre', 'tr': 'tur', 'he': 'heb', 'vi': 'vie',
-                'th': 'tha', 'sv': 'swe', 'da': 'dan', 'fi': 'fin', 'no': 'nor',
-                'hr': 'hrv', 'bg': 'bul', 'sr': 'scc', 'sk': 'slo', 'sl': 'slv',
-                'uk': 'ukr', 'id': 'ind', 'ms': 'may', 'hi': 'hin', 'et': 'est',
-            }
-            if languages:
-                lang_code = languages[0].lower()
-                lang_code_3 = _LANG_2_TO_3.get(lang_code, lang_code)
-                movie_url = movie_url.replace('sublanguageid-all', f'sublanguageid-{lang_code_3}')
-                logger.debug(f"Modified movie URL for language {lang_code} -> {lang_code_3}: {movie_url}")
             
             # Make request to movie/show page
             response = self.session_manager.get(movie_url)
@@ -659,3 +678,4 @@ class OpenSubtitlesScraper:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
