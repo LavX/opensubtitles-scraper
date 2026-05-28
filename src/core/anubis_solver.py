@@ -157,6 +157,22 @@ def _save_cookies_to_cache(domain: str, cookies: dict) -> None:
         logger.debug("Could not save Anubis cookie cache: %s", e)
 
 
+def invalidate_cached_cookies(domain: str) -> None:
+    """Remove cached Anubis cookies for a domain (called when cached cookies are stale)."""
+    try:
+        if not os.path.exists(_COOKIE_CACHE_PATH):
+            return
+        with open(_COOKIE_CACHE_PATH, "r") as f:
+            cache = json.load(f)
+        if domain in cache:
+            del cache[domain]
+            with open(_COOKIE_CACHE_PATH, "w") as f:
+                json.dump(cache, f)
+            logger.debug("Invalidated Anubis cookie cache for %s", domain)
+    except Exception as e:
+        logger.debug("Could not invalidate Anubis cookie cache: %s", e)
+
+
 def solve_anubis_challenge(
     session: requests.Session,
     challenge_url: str,
@@ -300,3 +316,4 @@ def solve_anubis_challenge(
     except Exception as e:
         logger.error("Anubis solver failed: %s", e)
         return None
+

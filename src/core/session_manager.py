@@ -13,7 +13,7 @@ from requests.exceptions import RequestException, Timeout, ConnectionError
 
 from urllib.parse import urlparse as _urlparse
 
-from .anubis_solver import is_anubis_challenge, solve_anubis_challenge
+from .anubis_solver import is_anubis_challenge, invalidate_cached_cookies, solve_anubis_challenge
 
 from ..utils.exceptions import CloudflareError, ScrapingError, ServiceUnavailableError
 from ..utils.url_validator import validate_target_url
@@ -241,6 +241,7 @@ class SessionManager:
     def _solve_anubis(self, original_url: str, challenge_url: str):
         """Solve an Anubis PoW challenge and retry the original request."""
         import requests as plain_requests
+        from urllib.parse import urlparse
 
         # Use a plain requests session (not cloudscraper) for the Anubis flow
         anubis_session = plain_requests.Session()
@@ -275,9 +276,29 @@ class SessionManager:
         # Retry the original request with the new cookies
         resp = session.request("GET", original_url, timeout=(10, min(self.timeout, 15)))
         if is_anubis_challenge(resp.url, resp.status_code):
-            raise CloudflareError(
-                f"Anubis challenge persists after solving (redirected to {resp.url})"
+            # Cached cookies were stale, invalidate and re-solve fresh
+            domain = urlparse(challenge_url).netloc
+            logger.warning(
+                "Cached Anubis cookies rejected by server for %s, re-solving fresh", domain
             )
+            invalidate_cached_cookies(domain)
+            cookies = solve_anubis_challenge(
+                anubis_session, challenge_url, original_url, timeout=self.timeout,
+            )
+            if not cookies:
+                raise CloudflareError(
+                    f"Anubis challenge at {challenge_url} could not be solved"
+                )
+            for name, value in cookies.items():
+                session.cookies.set(name, value)
+                self.session.cookies.set(name, value)
+            logger.info("Injected %d fresh Anubis cookies into session", len(cookies))
+            resp = session.request("GET", original_url, timeout=(10, min(self.timeout, 15)))
+            if is_anubis_challenge(resp.url, resp.status_code):
+                raise CloudflareError(
+                    f"Anubis challenge persists after fresh solve (redirected to {resp.url})"
+                )
+
         resp.raise_for_status()
         return resp
 
@@ -609,3 +630,4 @@ class SessionManager:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
