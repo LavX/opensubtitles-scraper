@@ -257,31 +257,16 @@ class SessionManager:
         for cookie in self.session.cookies:
             anubis_session.cookies.set(cookie.name, cookie.value, domain=cookie.domain)
 
-        cookies = solve_anubis_challenge(
-            anubis_session, challenge_url, original_url, timeout=self.timeout,
-        )
-
-        if not cookies:
-            raise CloudflareError(
-                f"Anubis challenge at {challenge_url} could not be solved"
-            )
-
-        # Inject the Anubis cookies into our main session
         session = self.get_session()
-        for name, value in cookies.items():
-            session.cookies.set(name, value)
-            self.session.cookies.set(name, value)
-        logger.info("Injected %d Anubis cookies into session", len(cookies))
+        domain = urlparse(challenge_url).netloc
 
-        # Retry the original request with the new cookies
-        resp = session.request("GET", original_url, timeout=(10, min(self.timeout, 15)))
-        if is_anubis_challenge(resp.url, resp.status_code):
-            # Cached cookies were stale, invalidate and re-solve fresh
-            domain = urlparse(challenge_url).netloc
-            logger.warning(
-                "Cached Anubis cookies rejected by server for %s, re-solving fresh", domain
-            )
-            invalidate_cached_cookies(domain)
+        for attempt in range(2):
+            if attempt == 1:
+                logger.warning(
+                    "Cached Anubis cookies rejected by server for %s, re-solving fresh", domain
+                )
+                invalidate_cached_cookies(domain)
+
             cookies = solve_anubis_challenge(
                 anubis_session, challenge_url, original_url, timeout=self.timeout,
             )
@@ -289,18 +274,20 @@ class SessionManager:
                 raise CloudflareError(
                     f"Anubis challenge at {challenge_url} could not be solved"
                 )
+
             for name, value in cookies.items():
                 session.cookies.set(name, value)
                 self.session.cookies.set(name, value)
-            logger.info("Injected %d fresh Anubis cookies into session", len(cookies))
-            resp = session.request("GET", original_url, timeout=(10, min(self.timeout, 15)))
-            if is_anubis_challenge(resp.url, resp.status_code):
-                raise CloudflareError(
-                    f"Anubis challenge persists after fresh solve (redirected to {resp.url})"
-                )
+            logger.info("Injected %d Anubis cookies into session", len(cookies))
 
-        resp.raise_for_status()
-        return resp
+            resp = session.request("GET", original_url, timeout=(10, min(self.timeout, 15)))
+            if not is_anubis_challenge(resp.url, resp.status_code):
+                resp.raise_for_status()
+                return resp
+
+        raise CloudflareError(
+            f"Anubis challenge persists after fresh solve (redirected to {resp.url})"
+        )
 
     def _is_cloudflare_active(self, url: str) -> bool:
         """Quick pre-flight check: is Cloudflare blocking this URL?
