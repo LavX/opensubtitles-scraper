@@ -6,6 +6,14 @@
 
 A self-hosted service that scrapes OpenSubtitles.org and exposes Bazarr-compatible API endpoints. Drop-in replacement for the removed .org provider.
 
+> [!NOTE]
+> **Bazarr+ no longer bundles this sidecar.** As of Bazarr+ v2.4, OpenSubtitles.org is a
+> native Provider Hub plugin you install from the in-app catalog (set its FlareSolverr URL
+> in the plugin's settings). This standalone scraper is **not decommissioned**: it stays
+> open-source, maintained, and usable on its own for older Bazarr+ versions, custom
+> integrations, or any tool that speaks its Bazarr-compatible API. On Bazarr+ v2.4 or newer,
+> install the plugin instead of running this sidecar.
+
 ## Contents
 
 - [Why this exists](#why-this-exists)
@@ -203,11 +211,11 @@ curl -X POST http://localhost:8000/api/v1/download/subtitle \
 
 Three integration paths, in order of how most people will use this:
 
-### 1. Bazarr+ fork (zero-config)
+### 1. Bazarr+ fork
 
-The [Bazarr+ fork](https://github.com/LavX/bazarr) ships with `opensubtitles` (the .org provider) wired up to talk to this service. If you used the [installer above](#full-bazarr-stack-bazarr--scraper--flaresolverr--ai-translator), nothing else to do. Log into Bazarr at `http://localhost:6767`, pick `OpenSubtitles.org` under **Settings → Providers**, and you're done.
+**On Bazarr+ v2.4 or newer**, OpenSubtitles.org is a native Provider Hub plugin. Install **OpenSubtitles.org** from the in-app **Distribution Hub** catalog, enable it under **Settings → Providers**, and set its FlareSolverr URL (`http://flaresolverr:8191/v1`) in the plugin's settings. No scraper sidecar is required, so this service is no longer part of the Bazarr+ stack.
 
-The Bazarr+ container reaches the scraper via the internal Docker network using `OPENSUBTITLES_SCRAPER_URL=http://opensubtitles-scraper:8000`.
+**On older Bazarr+ releases (pre-2.4)**, the built-in `opensubtitles` provider talked to this service over the internal Docker network via `OPENSUBTITLES_SCRAPER_URL=http://opensubtitles-scraper:8000`. If you are still on one of those, keep running this service; if you upgrade to v2.4+, switch to the native plugin.
 
 ### 2. Stock (upstream) Bazarr
 
