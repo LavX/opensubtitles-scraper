@@ -663,6 +663,32 @@ class TestSubtitleParserParseSubtitlePage:
         subs = self.parser.parse_subtitle_page(html, "https://example.com")
         assert len(subs) == 1
 
+    SINGLE_SUBTITLE_PAGE_HTML = """<html><head>
+      <link rel="alternate" hreflang="ar" href="https://www.opensubtitles.org/ar/subtitles/14046152/sham-fr" />
+      <link rel="alternate" hreflang="en" href="https://www.opensubtitles.org/en/subtitles/14046152/sham-fr" />
+    </head><body>
+      <h2>Sham (2025)</h2>
+      <a href="/en/subtitleserve/sub/14046152">Download</a>
+    </body></html>"""
+
+    def test_single_subtitle_page_language_from_alternate(self):
+        """Without a canonical link, the language comes from the alternate links,
+        not from the pre-redirect search URL."""
+        subs = self.parser.parse_subtitle_page(
+            self.SINGLE_SUBTITLE_PAGE_HTML,
+            "https://www.opensubtitles.org/en/search/sublanguageid-fre/idmovie-2453046",
+        )
+        assert [(s.subtitle_id, s.language) for s in subs] == [("14046152", "fr")]
+
+    def test_single_subtitle_page_language_from_page_url(self):
+        html = """<html><body>
+          <a href="/en/subtitleserve/sub/14046152">Download</a>
+        </body></html>"""
+        subs = self.parser.parse_subtitle_page(
+            html, "https://www.opensubtitles.org/en/subtitles/14046152/sham-fr"
+        )
+        assert [(s.subtitle_id, s.language) for s in subs] == [("14046152", "fr")]
+
 
 class TestIsSubtitleRow:
     def setup_method(self):

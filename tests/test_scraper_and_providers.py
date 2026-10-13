@@ -515,6 +515,20 @@ class TestGetSubtitles:
         url_called = scraper._mock_session.get.call_args[0][0]
         assert "sublanguageid-eng" in url_called
 
+    def test_parses_with_final_url_after_redirect(self, scraper):
+        """A single-result search redirects to the subtitle page; the parser must
+        see that URL, since the subtitle language is encoded in it."""
+        resp = _mock_response()
+        resp.url = "https://www.opensubtitles.org/en/subtitles/14046152/sham-fr"
+        scraper._mock_session.get.return_value = resp
+        scraper._mock_subtitle_parser.parse_subtitle_page.return_value = []
+        scraper.get_subtitles(
+            "https://www.opensubtitles.org/en/search/sublanguageid-all/idmovie-2453046",
+            languages=["fr"],
+        )
+        parsed_url = scraper._mock_subtitle_parser.parse_subtitle_page.call_args[0][1]
+        assert parsed_url == resp.url
+
     def test_response_closed(self, scraper):
         resp = _mock_response()
         scraper._mock_session.get.return_value = resp
