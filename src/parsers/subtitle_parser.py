@@ -383,6 +383,12 @@ class SubtitleParser:
             # Prefer the canonical URL for language extraction because the caller's
             # page_url may still be the original search URL (before the redirect).
             canonical_tag = soup.find('link', rel='canonical')
+            if not canonical_tag:
+                # Detail pages currently have no canonical link, but they list
+                # per-locale alternates (/xx/subtitles/{id}/{slug}-{lang}).
+                canonical_tag = soup.find(
+                    'link', rel='alternate', href=re.compile(rf'/en/subtitles/{subtitle_id}/')
+                )
             canonical_url = (canonical_tag.get('href', '') if canonical_tag else '') or page_url
 
             language = self._extract_language_from_url(canonical_url)

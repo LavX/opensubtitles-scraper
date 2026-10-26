@@ -386,8 +386,11 @@ class OpenSubtitlesScraper:
                 logger.info(f"Looking for specific episode: S{season:02d}E{episode:02d}")
                 subtitles = self._get_episode_subtitles(html_content, movie_url, season, episode, languages)
             else:
-                # Parse subtitle listings normally
-                subtitles = self.subtitle_parser.parse_subtitle_page(html_content, movie_url)
+                # Parse subtitle listings normally. Pass the final URL: when a search
+                # yields a single subtitle, OpenSubtitles redirects to its detail page
+                # (/en/subtitles/{id}/{slug}-{lang}), which is where its language lives.
+                final_url = response.url if isinstance(response.url, str) and response.url else movie_url
+                subtitles = self.subtitle_parser.parse_subtitle_page(html_content, final_url)
             
             # Filter by languages if specified
             if languages:
