@@ -636,6 +636,7 @@ class CloudScraper(Session):
                     self.cipherSuite = new_cipher_suite
 
                     # Update the HTTPS adapter with new cipher suite
+                    old_adapter = self.adapters.get('https://')
                     self.mount(
                         'https://',
                         CipherSuiteAdapter(
@@ -646,6 +647,12 @@ class CloudScraper(Session):
                             ssl_context=self.ssl_context
                         )
                     )
+
+                    # Close the replaced adapter: it is never garbage collected
+                    # (its ssl_context holds a bound method back to it), so its
+                    # pooled keep-alive sockets would otherwise leak forever.
+                    if old_adapter is not None:
+                        old_adapter.close()
 
                     if self.debug:
                         print(f'🔐 Rotated TLS cipher suite (rotation #{self._cipher_rotation_count})')
